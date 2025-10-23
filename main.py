@@ -8,16 +8,16 @@ from contextlib import closing
 from docx import Document
 import telebot
 from telebot import types
-import schedule
 import time
 import sqlite3
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "bot.db")
+SCHEDULE_FILE = os.path.join(BASE_DIR, "Расписание.docx")
+SHIFTS_FILE = os.path.join(BASE_DIR, "group_shifts.json")
+
 # ============================ КОНФИГ ============================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8253140899:AAFPdH80KTgoKRAUTyuqBJhrs_DLIkw9zto")
-
-SCHEDULE_FILE = "Расписание.docx"
-USER_DATA_FILE = "user_data.json"   # используется один раз для миграции
-DB_FILE = "bot.db"
 
 # Роли пользователей
 ROLES = {
@@ -35,8 +35,6 @@ days_ru_lower = [day.lower() for day in days_ru]
 
 # Инициализация бота
 bot = telebot.TeleBot(BOT_TOKEN)
-
-SHIFTS_FILE = "group_shifts.json"
 
 # Только для расписаний из DOCX
 group_shifts = {}
@@ -232,70 +230,14 @@ def db_list_last_users(limit: int = 10):
             LIMIT ?
         """, (limit,)).fetchall()
 
-# ---------------------- миграция из JSON (один раз) ----------------------
-def migrate_json_to_db():
-    if not os.path.exists(USER_DATA_FILE):
-        return
-    try:
-        with open(USER_DATA_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        ug = data.get('user_groups', {})
-        ur = data.get('user_roles', {})
-        tn = data.get('teacher_names', {})
-        sm = data.get('scheduled_messages', {})
-
-        def to_int_keys(d):
-            out = {}
-            for k, v in d.items():
-                try:
-                    out[int(k)] = v
-                except:
-                    pass
-            return out
-
-        ug = to_int_keys(ug)
-        ur = to_int_keys(ur)
-        tn = to_int_keys(tn)
-        sm = to_int_keys(sm)
-
-        with closing(db_connect()) as conn, conn:
-            for uid, role in ur.items():
-                conn.execute("INSERT OR IGNORE INTO users(user_id, role) VALUES(?, ?)", (uid, role))
-            for uid, grp in ug.items():
-                conn.execute("""
-                    INSERT INTO users(user_id, group_name) VALUES(?, ?)
-                    ON CONFLICT(user_id) DO UPDATE SET group_name=excluded.group_name
-                """, (uid, grp))
-            for uid, fio in tn.items():
-                conn.execute("""
-                    INSERT INTO users(user_id, teacher_fio) VALUES(?, ?)
-                    ON CONFLICT(user_id) DO UPDATE SET teacher_fio=excluded.teacher_fio
-                """, (uid, fio))
-            for uid, row in sm.items():
-                enabled = 1 if row.get('enabled', False) else 0
-                t = row.get('time', '08:00')
-                conn.execute("""
-                    INSERT INTO schedule_prefs(user_id, enabled, time) VALUES(?, ?, ?)
-                    ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled, time=excluded.time
-                """, (uid, enabled, t))
-        print("✅ Миграция данных из JSON в SQLite выполнена")
-        # os.rename(USER_DATA_FILE, USER_DATA_FILE + ".bak")
-    except Exception as e:
-        print(f"❌ Ошибка миграции из JSON: {e}")
-
 # ====================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ======================
 
 def load_user_data():
     """Инициализация БД и разовая миграция из JSON (если есть)."""
     db_init()
-    migrate_json_to_db()
     stats = db_count_stats()
     print(f"✅ Пользователей в БД: {stats['total']}")
     print(f"👥 Роли: {stats['students']} студентов, {stats['teachers']} преподавателей, {stats['admins']} администраторов")
-
-def save_user_data():
-    """Больше не нужно: все пишется сразу в БД."""
-    pass
 
 def get_user_role(user_id: int):
     """Роль пользователя с учетом ADMINS."""
@@ -626,9 +568,7 @@ if os.path.exists(SCHEDULE_FILE):
     print(f"✅ Загружено расписание для {len(student_schedules)} групп")
     if student_schedules:
         sorted_groups = get_sorted_groups(list(student_schedules.keys()))
-        print(f"📊 Группы отсортированы по курсам:")
-        for group in sorted_groups:
-            print(f"   - {group}")
+        print(f"📊 Группы отсортированы по курсам.")
 else:
     print(f"❌ Файл расписания '{SCHEDULE_FILE}' не найден!")
 
@@ -673,7 +613,7 @@ def start_command(message):
         keyboard = create_main_keyboard(user_id)
         bot.send_message(
             user_id,
-            f"👨‍🏫 *Добро пожаловать, {teacher_fio}!*\n\n"
+            f"👨‍🏫 *Мы вас все еще помним, {teacher_fio}!*\n\n"
             f"Используйте кнопки ниже для работы с ботом:",
             reply_markup=keyboard,
             parse_mode='Markdown'
@@ -1369,6 +1309,17 @@ update_thread.start()
 
 print("🤖 Бот запущен!")
 print(f"👑 Администраторы: {ADMINS}")
+
+def db_debug_print():
+    with closing(db_connect()) as conn:
+        cnt = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        print("📁 DB path:", os.path.abspath(DB_FILE))
+        print("👥 users rows:", cnt)
+        sample = conn.execute("SELECT user_id, role, teacher_fio FROM users ORDER BY user_id DESC LIMIT 3").fetchall()
+        print("🔎 sample users:", sample)
+
+# вызови сразу после load_user_data()
+db_debug_print()
 
 while True:
     try:
