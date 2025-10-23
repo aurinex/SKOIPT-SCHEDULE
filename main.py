@@ -810,10 +810,15 @@ def teacher_command(message):
 
 @bot.message_handler(commands=['settings'])
 def settings_command(message):
-    """Обработчик команды /settings"""
-    user_id = int(message.from_user.id)
+    render_settings_panel(message.from_user.id)
+
+# ================== CALLBACK'и АДМИНА И ПРЕПОДА ==================
+
+def render_settings_panel(user_id: int, message_id: int | None = None):
+    """Рендер экрана 'Настройки' (как send_message, так и edit_message_text)."""
     user_role = get_user_role(user_id)
 
+    # Собираем клавиатуру
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(types.InlineKeyboardButton("🔄 Сменить группу", callback_data="change_group"))
 
@@ -827,6 +832,7 @@ def settings_command(message):
     if is_teacher(user_id):
         keyboard.add(types.InlineKeyboardButton("👨‍🏫 Настройки преподавателя", callback_data="teacher_settings"))
 
+    # Текст
     current_group = db_get_group(user_id) or "не выбрана"
     schedule_status = "включена" if user_schedule.get('enabled', False) else "отключена"
     schedule_time = user_schedule.get('time', '08:00')
@@ -836,17 +842,18 @@ def settings_command(message):
     if is_teacher(user_id) and teacher_fio:
         teacher_info = f"👨‍🏫 ФИО: {teacher_fio}\n"
 
-    bot.send_message(
-        user_id,
+    text = (
         f"⚙️ Настройки | {ROLES[user_role]}\n\n"
         f"{teacher_info}"
         f"📚 Текущая группа: {current_group}\n"
         f"🔔 Ежедневная рассылка: {schedule_status}\n"
-        f"⏰ Время отправки: {schedule_time}",
-        reply_markup=keyboard
+        f"⏰ Время отправки: {schedule_time}"
     )
 
-# ================== CALLBACK'и АДМИНА И ПРЕПОДА ==================
+    if message_id is not None:
+        bot.edit_message_text(text, user_id, message_id, reply_markup=keyboard)
+    else:
+        bot.send_message(user_id, text, reply_markup=keyboard)
 
 def build_admin_keyboard():
     kb = types.InlineKeyboardMarkup()
@@ -1037,12 +1044,18 @@ def show_teacher_settings(call):
     teacher_fio = db_get_teacher_fio(user_id) or "Не указано"
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(types.InlineKeyboardButton("✏️ Изменить ФИО", callback_data="teacher_change_fio"))
-    keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="teacher_back"))
+    keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="settings_back"))
     bot.edit_message_text(
         f"👨‍🏫 Настройки преподавателя\n\n"
         f"Текущее ФИО: {teacher_fio}",
         user_id, message_id, reply_markup=keyboard
     )
+
+@bot.callback_query_handler(func=lambda call: call.data == "settings_back")
+def settings_back_handler(call):
+    user_id = call.from_user.id
+    render_settings_panel(user_id, message_id=call.message.message_id)
+    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "teacher_change_fio")
 def change_teacher_fio_callback(call):
