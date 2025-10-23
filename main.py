@@ -786,17 +786,11 @@ def schedule_command(message):
 
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
-    """Обработчик команды /admin - только для администраторов"""
     user_id = int(message.from_user.id)
     if not is_admin(user_id):
         bot.send_message(user_id, "❌ У вас нет прав для доступа к этой команде.")
         return
-
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton("👥 Управление пользователями", callback_data="admin_users"))
-    keyboard.add(types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"))
-    keyboard.add(types.InlineKeyboardButton("🔄 Обновить расписание", callback_data="admin_refresh"))
-    bot.send_message(user_id, "👑 Панель администратора\n\nВыберите действие:", reply_markup=keyboard)
+    render_admin_panel(user_id)
 
 @bot.message_handler(commands=['teacher'])
 def teacher_command(message):
@@ -854,6 +848,37 @@ def settings_command(message):
 
 # ================== CALLBACK'и АДМИНА И ПРЕПОДА ==================
 
+def build_admin_keyboard():
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("👥 Управление пользователями", callback_data="admin_users"))
+    kb.add(types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"))
+    kb.add(types.InlineKeyboardButton("🔄 Обновить расписание", callback_data="admin_refresh"))
+    return kb
+
+def render_admin_panel(chat_id: int, message_id: int | None = None):
+    text = "👑 Панель администратора\n\nВыберите действие:"
+    kb = build_admin_keyboard()
+    if message_id:
+        bot.edit_message_text(text, chat_id, message_id, reply_markup=kb)
+    else:
+        bot.send_message(chat_id, text, reply_markup=kb)
+
+def build_teacher_keyboard(user_id: int):
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("📚 Мои занятия", callback_data="teacher_lessons"))
+    kb.add(types.InlineKeyboardButton("👥 Мои группы", callback_data="teacher_groups"))
+    if is_admin(user_id):
+        kb.add(types.InlineKeyboardButton("👑 Перейти в админ-панель", callback_data="admin_panel"))
+    return kb
+
+def render_teacher_panel(user_id: int, message_id: int | None = None):
+    text = "👨‍🏫 Панель преподавателя\n\nВыберите действие:"
+    kb = build_teacher_keyboard(user_id)
+    if message_id:
+        bot.edit_message_text(text, user_id, message_id, reply_markup=kb)
+    else:
+        bot.send_message(user_id, text, reply_markup=kb)
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith('admin_'))
 def admin_callback_handler(call):
     user_id = call.from_user.id
@@ -863,14 +888,23 @@ def admin_callback_handler(call):
 
     if call.data == "admin_users":
         show_user_management(call)
+        bot.answer_callback_query(call.id)
     elif call.data == "admin_stats":
         show_admin_stats(call)
+        bot.answer_callback_query(call.id)
     elif call.data == "admin_refresh":
+        # внутри refresh_schedule уже есть answer_callback_query
         refresh_schedule(call)
     elif call.data == "admin_panel":
-        admin_command(call.message)
+        render_admin_panel(user_id)  # открыть новой записью
+        bot.answer_callback_query(call.id)
+    elif call.data == "admin_set_teacher":
+        set_teacher_callback(call)          # запускаем сценарий назначения
+        bot.answer_callback_query(call.id)
     elif call.data == "admin_back":
-        admin_command(call.message)
+        # ↩️ именно редактируем текущее сообщение назад в главное меню
+        render_admin_panel(user_id, message_id=call.message.message_id)
+        bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('teacher_'))
 def teacher_callback_handler(call):
@@ -881,10 +915,17 @@ def teacher_callback_handler(call):
 
     if call.data == "teacher_lessons":
         show_teacher_lessons(call)
+        bot.answer_callback_query(call.id)
     elif call.data == "teacher_groups":
         show_teacher_groups(call)
+        bot.answer_callback_query(call.id)
     elif call.data == "teacher_settings":
         show_teacher_settings(call)
+        bot.answer_callback_query(call.id)
+    elif call.data == "teacher_back":
+        # редактируем текущий месседж обратно в панель препода
+        render_teacher_panel(user_id, message_id=call.message.message_id)
+        bot.answer_callback_query(call.id)
 
 def show_user_management(call):
     user_id = call.from_user.id
@@ -970,20 +1011,24 @@ def show_teacher_lessons(call):
     user_id = call.from_user.id
     message_id = call.message.message_id
     teacher_fio = db_get_teacher_fio(user_id) or "Не указано"
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="teacher_back"))
     bot.edit_message_text(
         f"👨‍🏫 Мои занятия\n\n"
         f"ФИО: {teacher_fio}\n"
         f"Здесь будет список ваших занятий...",
-        user_id, message_id
+        user_id, message_id, reply_markup=kb
     )
 
 def show_teacher_groups(call):
     user_id = call.from_user.id
     message_id = call.message.message_id
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="teacher_back"))
     bot.edit_message_text(
         "👥 Мои группы\n\n"
         "Здесь будет список ваших групп...",
-        user_id, message_id
+        user_id, message_id, reply_markup=kb
     )
 
 def show_teacher_settings(call):
@@ -1034,39 +1079,62 @@ def process_teacher_fio_change(message):
 @bot.callback_query_handler(func=lambda call: call.data == "admin_set_teacher")
 def set_teacher_callback(call):
     user_id = call.from_user.id
-    message_id = call.message.message_id
     if not is_admin(user_id):
         bot.answer_callback_query(call.id, "❌ У вас нет прав для этого действия")
         return
-    msg = bot.edit_message_text(
+
+    # ВАЖНО: используем send_message, чтобы register_next_step_handler сработал стабильно
+    msg = bot.send_message(
+        user_id,
         "🎯 Назначение преподавателя\n\n"
-        "Введите ID пользователя, которого хотите назначить преподавателем:",
-        user_id, message_id
+        "Введите ID пользователя, которого хотите назначить преподавателем.\n"
+        "Можно прислать несколько ID через пробел. Для отмены — напишите «отмена»."
     )
     bot.register_next_step_handler(msg, process_teacher_appointment)
 
 def process_teacher_appointment(message):
-    user_id = message.from_user.id
-    target_user_id = message.text.strip()
-    if not is_admin(user_id):
-        bot.send_message(user_id, "❌ У вас нет прав для этого действия")
+    admin_id = message.from_user.id
+    text = message.text.strip()
+
+    if not is_admin(admin_id):
+        bot.send_message(admin_id, "❌ У вас нет прав для этого действия")
         return
-    try:
-        target_user_id = int(target_user_id)
-        db_set_role(target_user_id, 'teacher')
+
+    if text.lower() in ("отмена", "cancel", "назад"):
+        bot.send_message(admin_id, "⛔️ Назначение отменено.")
+        render_admin_panel(admin_id)  # вернём админ-меню
+        return
+
+    # Поддержим несколько ID через пробел/запятую/перенос строки
+    raw_ids = re.split(r'[,\s]+', text)
+    ok, fail = [], []
+
+    for token in raw_ids:
+        if not token:
+            continue
         try:
-            bot.send_message(
-                target_user_id,
-                "🎉 Вам назначена роль преподавателя!\n"
-                "Перезапустите бота командой /start для завершения регистрации."
-            )
+            uid = int(token)
+            db_set_role(uid, 'teacher')
+            ok.append(uid)
+            # попробуем уведомить пользователя
+            try:
+                bot.send_message(
+                    uid,
+                    "🎉 Вам назначена роль преподавателя!\n"
+                    "Перезапустите бота командой /start для завершения регистрации."
+                )
+            except:
+                pass
         except:
-            pass
-        bot.send_message(user_id, f"✅ Пользователь {target_user_id} назначен преподавателем!")
-    except ValueError:
-        bot.send_message(user_id, "❌ Неверный формат ID. ID должен быть числом.")
-    except Exception as e:
-        bot.send_message(user_id, f"❌ Ошибка: {str(e)}")
+            fail.append(token)
+
+    if ok:
+        bot.send_message(admin_id, f"✅ Назначены преподавателями: {', '.join(map(str, ok))}")
+    if fail:
+        bot.send_message(admin_id, f"⚠️ Не удалось обработать: {', '.join(fail)}")
+
+    # Вернёмся в список пользователей (или главное админ-меню — на выбор)
+    render_admin_panel(admin_id)
 
 # ============== CALLBACK'и НАСТРОЕК РАССЫЛКИ/ГРУППЫ ==============
 
