@@ -27,7 +27,7 @@ def log_error(context: str, e: Exception):
 # ============================ КОНФИГ ============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8253140899:AAFPdH80KTgoKRAUTyuqBJhrs_DLIkw9zto")
-API_URL = os.getenv("API_URL", "http://localhost:3020")
+API_URL = os.getenv("API_URL", "http://172.17.0.1:3020")
 
 # Роли пользователей
 ROLES = {
