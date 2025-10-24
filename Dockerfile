@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # ========== Порт (если нужно для API или healthcheck) ==========
-EXPOSE 8080
+EXPOSE 3020
 
 # ========== Запуск ==========
 CMD ["python", "bot.py"]
