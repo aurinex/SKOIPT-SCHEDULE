@@ -4,7 +4,7 @@ import io
 import json
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Iterable, Tuple
+from typing import Any, Dict, List, Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 import requests
 from requests.adapters import HTTPAdapter, Retry
@@ -14,7 +14,7 @@ from telebot import types
 # ============================ КОНФИГ ============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8253140899:AAFPdH80KTgoKRAUTyuqBJhrs_DLIkw9zto")
-API_URL = os.getenv("API_URL", "http://192.168.0.202:3000")
+API_URL = os.getenv("API_URL", "http://localhost:3000")
 
 # Роли пользователей
 ROLES = {
