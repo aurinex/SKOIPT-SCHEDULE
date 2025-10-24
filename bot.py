@@ -6,11 +6,13 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from apscheduler.schedulers.background import BackgroundScheduler
-import requests
+import requests, json
 from requests.adapters import HTTPAdapter, Retry
 import telebot
 from telebot import types
 import traceback
+
+pending_uploads = {}  # user_id → {"docx": bytes, "json": bytes}
 
 def log_error(context: str, e: Exception):
     """Выводит понятный лог об ошибке с указанием контекста"""
@@ -20,10 +22,12 @@ def log_error(context: str, e: Exception):
     tb = traceback.format_exc(limit=2)
     print(f"Трассировка: {tb}\n")
 
+#8253140899:AAFPdH80KTgoKRAUTyuqBJhrs_DLIkw9zto 172.17.0.1
+
 # ============================ КОНФИГ ============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8253140899:AAFPdH80KTgoKRAUTyuqBJhrs_DLIkw9zto")
-API_URL = os.getenv("API_URL", "http://172.17.0.1:3020")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8468865986:AAGy5vwdtetdb4_mw0r27CU1nJuF7ai9-28")
+API_URL = os.getenv("API_URL", "http://localhost:3020")
 
 # Роли пользователей
 ROLES = {
@@ -33,7 +37,7 @@ ROLES = {
 }
 
 # Администраторы (user_id)
-ADMINS = [1044229010]
+ADMINS = [1044229010, 965614231]
 
 # Дни недели
 days_ru = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"]
@@ -102,6 +106,24 @@ def api_get_users() -> List[Dict[str, Any]]:
     except Exception as e:
         log_error("api_get_users()", e)
         return []
+    
+                                                # === API: users с пагинацией ===
+def api_get_users_page(skip: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
+    try:
+        r = _get(f"{API_URL}/users/", params={"skip": skip, "limit": limit})
+        if r.status_code == 200:
+            return r.json()
+        print(f"[WARN] GET /users?skip={skip}&limit={limit} → {r.status_code}: {r.text[:200]}")
+        return []
+    except Exception as e:
+        log_error(f"api_get_users_page(skip={skip}, limit={limit})", e)
+        return []
+
+                                                # «подглядываем» на 1 запись вперёд, чтобы понять есть ли следующая страница
+def api_get_users_page_peek(skip: int = 0, limit: int = 10) -> tuple[List[Dict[str, Any]], bool]:
+    rows = api_get_users_page(skip=skip, limit=limit + 1)
+    has_next = len(rows) > limit
+    return rows[:limit], has_next
 
 def api_get_all_groups() -> List[str]:
     try:
@@ -148,16 +170,22 @@ def api_get_teacher_schedule(fio_key: str) -> Optional[Dict[str, Any]]:
         log_error(f"api_get_schedule({fio_key})", e)
         return None
 
-def api_upload_schedule(docx_bytes: bytes, shifts_json_bytes: Optional[bytes] = None) -> Optional[Dict[str, Any]]:
+def api_upload_schedule(docx_bytes: bytes, json_bytes: bytes | None = None):
     files = {
-        "schedule_file": ("schedule.docx", io.BytesIO(docx_bytes), "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        "schedule_file": ("schedule.docx", docx_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
     }
-    if shifts_json_bytes is not None:
-        files["shifts_file"] = ("group_shifts.json", io.BytesIO(shifts_json_bytes), "application/json")
+    if json_bytes:
+        files["shifts_file"] = ("group_shifts.json", json_bytes, "application/json")
+
     try:
-        r = _post(f"{API_URL}/schedule/upload", files=files)
-        return r.json() if r.status_code == 200 else None
-    except:
+        resp = _post(f"{API_URL}/schedule/upload", files=files)
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            print("Ошибка:", resp.text)
+            return None
+    except Exception as e:
+        print("Ошибка запроса:", e)
         return None
     
 def check_api_connection():
@@ -553,6 +581,18 @@ def admin_callback_handler(call):
     if not is_admin(user_id):
         bot.answer_callback_query(call.id, "❌ У вас нет прав для этого действия")
         return
+    
+    # --- Управление пользователями с пагинацией ---
+    if call.data.startswith("admin_users"):
+        # ответим сразу, чтобы не словить "query is too old"
+        try: bot.answer_callback_query(call.id)
+        except: pass
+
+        parts = call.data.split(":")
+        skip = int(parts[1]) if len(parts) > 1 else 0
+        limit = int(parts[2]) if len(parts) > 2 else 10
+        show_user_management(call, skip=skip, limit=limit)
+        return
 
     if call.data == "admin_users":
         show_user_management(call)
@@ -583,6 +623,10 @@ def teacher_callback_handler(call):
 
     # === Мои занятия ===
     if call.data == "teacher_lessons":
+        try:
+            bot.clear_step_handler_by_chat_id(call.from_user.id)
+        except Exception:
+            pass
         user = api_get_user(user_id) or {}
         teacher_fio = user.get("teacher_fio", "Не указано")
         fio_key = fio_full_to_initials(teacher_fio)
@@ -652,6 +696,22 @@ def teacher_callback_handler(call):
         show_teacher_settings(call)
         bot.answer_callback_query(call.id)
         return
+    
+    elif call.data == "teacher_change_fio":
+        try:
+            bot.clear_step_handler_by_chat_id(user_id)
+        except Exception:
+            pass
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="settings_back"))
+        msg = bot.send_message(
+            user_id,
+            "✏️ Изменение ФИО\n\nВведите ваше новое ФИО полностью (например: Иванов Иван Иванович):",
+            reply_markup=kb
+        )
+        bot.register_next_step_handler(msg, process_teacher_fio_change)
+        bot.answer_callback_query(call.id)
+        return
 
     # === Назад в панель преподавателя ===
     elif call.data == "teacher_back":
@@ -661,11 +721,14 @@ def teacher_callback_handler(call):
 
     # === Отправка задания ===
     elif call.data.startswith("teacher_sendtask_"):
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="teacher_lessons")) 
         group = call.data.replace("teacher_sendtask_", "")
         msg = bot.send_message(
             user_id,
             f"📎 Прикрепите файл с заданием для группы *{group}* (документ, фото, архив и т.п.):",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=kb
         )
         bot.register_next_step_handler(msg, lambda m: process_teacher_task_file(m, group))
         bot.answer_callback_query(call.id)
@@ -709,35 +772,93 @@ def build_admin_keyboard():
     kb.add(types.InlineKeyboardButton("🔄 Обновить расписание", callback_data="admin_refresh"))
     return kb
 
-def show_user_management(call):
+def show_user_management(call, skip: int = 0, limit: int = 10):
     user_id = call.from_user.id
     message_id = call.message.message_id
 
-    rows = list(reversed(api_get_users()))[:10]  # последние по id
+    skip = max(0, int(skip))
+    limit = max(1, int(limit))
+
+    rows, has_next = api_get_users_page_peek(skip=skip, limit=limit)
+    if not rows and skip > 0:
+        skip = max(0, skip - limit)
+        rows, has_next = api_get_users_page_peek(skip=skip, limit=limit)
+
     users_info = []
     for u in rows:
         uid = u.get('user_id')
         uname = u.get('username')
         role = u.get('role', 'student')
         grp = u.get('group_name') or 'нет группы'
-        info = f"@{uname}, {uid}: {ROLES.get(role, role)}, группа: {grp}"
+        line = f"@{uname}, {uid}: {ROLES.get(role, role)}"
+        if role == 'student':
+            line += f", группа: {grp}"
         fio = u.get('teacher_fio')
         if fio:
-            info += f", ФИО: {fio}"
-        users_info.append(info)
+            line += f", ФИО: {fio}"
+        users_info.append(line)
 
+    page_num = skip // limit + 1
     users_text = "\n".join(users_info) if users_info else "—"
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton("🎯 Назначить преподавателя", callback_data="admin_set_teacher"))
-    keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
 
-    total = len(api_get_users())
-    bot.edit_message_text(
-        f"👥 Управление пользователями\n\n"
-        f"Всего пользователей: {total}!\n"
-        f"Последние пользователи:\n{users_text}",
-        user_id, message_id, reply_markup=keyboard
+    text = (
+        "👥 Управление пользователями\n\n"
+        f"Страница: {page_num}\n"
+        f"Показано: {len(rows)}\n\n"
+        f"{users_text}"
     )
+
+    kb = types.InlineKeyboardMarkup(row_width=3)
+    has_prev = skip > 0
+    nav_buttons = []
+
+    if has_prev:
+        nav_buttons.append(types.InlineKeyboardButton("⬅️", callback_data=f"admin_users:{skip - limit}:{limit}"))
+    if has_next:
+        nav_buttons.append(types.InlineKeyboardButton("➡️", callback_data=f"admin_users:{skip + limit}:{limit}"))
+    
+    if nav_buttons:
+        kb.add(*nav_buttons)
+
+    kb.add(types.InlineKeyboardButton("🎯 Назначить преподавателя", callback_data="admin_set_teacher"))
+
+    kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
+
+    try:
+        bot.edit_message_text(text, user_id, message_id, reply_markup=kb)
+    except Exception as e:
+        if "message is not modified" not in str(e):
+            raise
+
+# def show_user_management(call):
+#     user_id = call.from_user.id
+#     message_id = call.message.message_id
+
+#     rows = list(reversed(api_get_users()))[:10]  # последние по id
+#     users_info = []
+#     for u in rows:
+#         uid = u.get('user_id')
+#         uname = u.get('username')
+#         role = u.get('role', 'student')
+#         grp = u.get('group_name') or 'нет группы'
+#         info = f"@{uname}, {uid}: {ROLES.get(role, role)}, группа: {grp}"
+#         fio = u.get('teacher_fio')
+#         if fio:
+#             info += f", ФИО: {fio}"
+#         users_info.append(info)
+
+#     users_text = "\n".join(users_info) if users_info else "—"
+#     keyboard = types.InlineKeyboardMarkup()
+#     keyboard.add(types.InlineKeyboardButton("🎯 Назначить преподавателя", callback_data="admin_set_teacher"))
+#     keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
+
+#     total = len(api_get_users())
+#     bot.edit_message_text(
+#         f"👥 Управление пользователями\n\n"
+#         f"Всего пользователей: {total}!\n"
+#         f"Последние пользователи:\n{users_text}",
+#         user_id, message_id, reply_markup=keyboard
+#     )
 
 def show_admin_stats(call):
     user_id = call.from_user.id
@@ -781,20 +902,6 @@ def settings_back_handler(call):
     user_id = call.from_user.id
     render_settings_panel(user_id, message_id=call.message.message_id)
     bot.answer_callback_query(call.id)
-
-@bot.callback_query_handler(func=lambda call: call.data == "teacher_change_fio")
-def change_teacher_fio_callback(call):
-    user_id = call.from_user.id
-    message_id = call.message.message_id
-    if not is_teacher(user_id):
-        bot.answer_callback_query(call.id, "❌ У вас нет прав для этого действия")
-        return
-    msg = bot.edit_message_text(
-        "✏️ Изменение ФИО\n\n"
-        "Введите ваше новое ФИО полностью (например: Иванов Иван Иванович):",
-        user_id, message_id
-    )
-    bot.register_next_step_handler(msg, process_teacher_fio_change)
 
 # =========== Назначение преподавателей (виртуально через /users) ===========
 
@@ -945,33 +1052,70 @@ def text_message_handler(message):
         file_info = bot.get_file(message.document.file_id)
         file_bytes = bot.download_file(file_info.file_path)
         fname = (message.document.file_name or '').lower()
-        if fname.endswith('.docx'):
-            bot.send_message(user_id, "⏳ Отправка DOCX на сервер...")
-            resp = api_upload_schedule(file_bytes)
-            if resp is not None:
-                bot.send_message(user_id, "✅ Расписание загружено и обновлено в базе!")
 
-                users = api_get_users()
-                for u in users:
-                    uid = u.get("user_id")
-                    try:
-                        bot.send_message(uid, "📢 Расписание обновлено! Проверьте своё расписание в боте.")
-                    except Exception:
-                        pass  # игнорируем пользователей, которым нельзя отправить
-            else:
-                bot.send_message(user_id, "❌ Ошибка при загрузке расписания на сервер.")
-            return
-        elif fname.endswith('.json'):
-            # необязательный JSON — можем принять, но в этом примере не кэшируем
+        if user_id not in pending_uploads:
+            pending_uploads[user_id] = {}
+
+        # --- JSON файл ---
+        if fname.endswith('.json'):
             try:
                 json.loads(file_bytes.decode('utf-8'))
-                bot.send_message(user_id, "ℹ️ JSON получен. Отправьте также DOCX, чтобы загрузить оба файла вместе.")
+                pending_uploads[user_id]['json'] = file_bytes
+
+                # Проверяем, есть ли уже DOCX
+                if 'docx' in pending_uploads[user_id]:
+                    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                    markup.add(types.KeyboardButton("📤 Загрузить оба файла"))
+                    markup.add(types.KeyboardButton("❌ Отмена"))
+                    bot.send_message(
+                        user_id,
+                        "📂 Оба файла получены!\nНажмите «📤 Загрузить оба файла», чтобы отправить их на сервер.",
+                        reply_markup=markup
+                    )
+                else:
+                    bot.send_message(user_id, "✅ JSON получен. Теперь отправьте DOCX.")
+
             except Exception:
                 bot.send_message(user_id, "❌ JSON повреждён или неверный формат.")
             return
-        else:
-            bot.send_message(user_id, "❌ Поддерживаются файлы .docx и .json")
+        elif fname.endswith('.docx'):
+            pending_uploads[user_id]['docx'] = file_bytes
+
+            # Проверяем, есть ли JSON
+            if 'json' in pending_uploads[user_id]:
+                markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                markup.add(types.KeyboardButton("📤 Загрузить оба файла"))
+                markup.add(types.KeyboardButton("❌ Отмена"))
+                bot.send_message(
+                    user_id,
+                    "📂 Оба файла получены!\nНажмите «📤 Загрузить оба файла», чтобы отправить их на сервер.",
+                    reply_markup=markup
+                )
+            else:
+                markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                markup.add(types.KeyboardButton("📤 Загрузить расписание"))
+                markup.add(types.KeyboardButton("❌ Отмена"))
+                bot.send_message(
+                    user_id,
+                    "✅ DOCX получен.\n"
+                    "(Необязательно) Отправьте JSON со сменами, "
+                    "или нажмите «📤 Загрузить расписание», чтобы отправить только DOCX.",
+                    reply_markup=markup
+                )
             return
+        
+        # --- Проверка: если есть оба файла, показать кнопку ---
+        data = pending_uploads[user_id]
+        if 'docx' in data and 'json' in data:
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add(types.KeyboardButton("📤 Загрузить оба файла"))
+            markup.add(types.KeyboardButton("❌ Отмена"))
+            bot.send_message(
+                user_id,
+                "📂 Оба файла получены!\nНажмите «📤 Загрузить оба файла», чтобы отправить их на сервер.",
+                reply_markup=markup
+            )
+        return
 
     # --- Текстовые кнопки и команды ---
     text = (message.text or '').strip()
@@ -1005,7 +1149,6 @@ def text_message_handler(message):
         bot.send_message(
             user_id,
             f"✅ Группа {text} установлена!\n"
-            f"{role_text}\n\n"
             f"Теперь вы можете:\n"
             f"• Получить расписание на любой день недели\n"
             f"• Использовать кнопку 'Сегодня' для быстрого доступа\n"
@@ -1095,12 +1238,66 @@ def text_message_handler(message):
         return
 
     if text == "❌ Отмена":
+        pending_uploads.pop(user_id, None)
         group_name = (api_get_user(user_id) or {}).get('group_name')
         if group_name:
             keyboard = create_main_keyboard(user_id)
             bot.send_message(user_id, "Действие отменено.", reply_markup=keyboard)
         else:
             bot.send_message(user_id, "Действие отменено. Используйте /start для выбора группы.")
+        return
+    
+    if text == "📤 Загрузить расписание":
+        data = pending_uploads.get(user_id)
+        if not data or 'docx' not in data:
+            bot.send_message(user_id, "❌ Сначала отправьте DOCX-файл.")
+            return
+
+        bot.send_message(user_id, "⏳ Отправка расписания на сервер...")
+
+        resp = api_upload_schedule(data['docx'], None)  # JSON не передаём
+        pending_uploads.pop(user_id, None)
+
+        keyboard = create_main_keyboard(user_id)  # ← возвращаем основную клавиатуру
+
+        if resp is not None:
+            bot.send_message(user_id, "✅ Расписание успешно обновлено!", reply_markup=keyboard)
+            users = api_get_users()
+            for u in users:
+                try:
+                    bot.send_message(u["user_id"], "📢 Расписание обновлено! Проверьте своё расписание в боте.")
+                except Exception:
+                    pass
+        else:
+            bot.send_message(user_id, "❌ Ошибка при загрузке расписания.", reply_markup=keyboard),
+        return
+    
+    if text == "📤 Загрузить оба файла":
+        data = pending_uploads.get(user_id)
+        if not data or 'docx' not in data:
+            bot.send_message(user_id, "❌ Сначала отправьте DOCX и JSON файлы.")
+            return
+
+        bot.send_message(user_id, "⏳ Отправка файлов на сервер...")
+
+        resp = api_upload_schedule(data['docx'], data.get('json'))
+        pending_uploads.pop(user_id, None)
+
+        keyboard = create_main_keyboard(user_id)  # ← возвращаем основную клавиатуру
+
+        if resp is not None:
+            bot.send_message(user_id, "✅ Расписание успешно обновлено!", reply_markup=keyboard)
+
+            # Рассылка пользователям
+            users = api_get_users()
+            for u in users:
+                uid = u.get("user_id")
+                try:
+                    bot.send_message(uid, "📢 Расписание обновлено! Проверьте своё расписание.")
+                except Exception:
+                    pass
+        else:
+            bot.send_message(user_id, "❌ Ошибка при загрузке расписания.", reply_markup=keyboard),
         return
 
     # Если ни одна команда не подошла
@@ -1248,13 +1445,32 @@ if __name__ == "__main__":
     print(f"👑 Администраторы: {ADMINS}")
     check_api_connection()
 
+    # 1) Снять webhook один раз
+    try:
+        bot.remove_webhook()
+        # Если хотите сбросить очередь старых апдейтов, раскомментируйте блок ниже:
+        # import requests
+        # requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook",
+        #              params={"drop_pending_updates": "true"}, timeout=10)
+        time.sleep(1)  # крошечная пауза
+    except Exception as e:
+        print("remove_webhook error:", e)
+
+    # Планировщик
     scheduler = BackgroundScheduler()
     scheduler.add_job(send_daily_schedule, "interval", minutes=1)
     scheduler.start()
 
+    # 2) Основной цикл
     while True:
         try:
-            bot.polling(none_stop=True, timeout=60, long_polling_timeout=60)
+            bot.polling(
+                none_stop=True,
+                timeout=60,
+                long_polling_timeout=60,
+                allowed_updates=["message", "callback_query", "document"],
+                # skip_pending=True,  # ← включите, если есть такой параметр в вашей версии
+            )
         except Exception as e:
             print(f"❌ Ошибка подключения: {e}")
             print("🔄 Перезапуск через 10 секунд...")
