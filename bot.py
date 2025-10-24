@@ -551,7 +551,7 @@ def schedule_command(message):
     else:
         sch = api_get_schedule(group_name)
         schedule_text = format_schedule_for_day(group_name, sch or {}, today)
-        bot.send_message(user_id, schedule_text)
+        bot.send_message(user_id, schedule_text, protect_content=True)
 
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
@@ -1204,7 +1204,7 @@ def text_message_handler(message):
         else:
             sch = api_get_schedule(group_name)
             schedule_text = format_schedule_for_day(group_name, sch or {}, today)
-            bot.send_message(user_id, schedule_text)
+            bot.send_message(user_id, schedule_text, protect_content=True)
         return
 
     if text == "⚙️ Настройки":
@@ -1234,7 +1234,7 @@ def text_message_handler(message):
             return
         sch = api_get_schedule(group_name)
         schedule_text = format_schedule_for_day(group_name, sch or {}, day)
-        bot.send_message(user_id, schedule_text)
+        bot.send_message(user_id, schedule_text, protect_content=True)
         return
 
     if text == "❌ Отмена":
@@ -1340,7 +1340,7 @@ def send_daily_schedule():
                     continue
                 sch = api_get_schedule(group)
                 text = format_schedule_for_day(group, sch or {}, today)
-                bot.send_message(uid, f"📅 Ваше расписание на сегодня:\n\n{text}")
+                bot.send_message(uid, f"📅 Ваше расписание на сегодня:\n\n{text}", protect_content=True)
         except Exception as e:
             print(f"Ошибка отправки расписания пользователю {uid}: {e}")
 
