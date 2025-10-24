@@ -10,6 +10,15 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 import telebot
 from telebot import types
+import traceback
+
+def log_error(context: str, e: Exception):
+    """Выводит понятный лог об ошибке с указанием контекста"""
+    print(f"\n[❌ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Ошибка в {context}:")
+    print(f"Тип: {type(e).__name__}")
+    print(f"Описание: {e}")
+    tb = traceback.format_exc(limit=2)
+    print(f"Трассировка: {tb}\n")
 
 # ============================ КОНФИГ ============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -54,34 +63,44 @@ def api_get_user(user_id: int) -> Optional[Dict[str, Any]]:
         r = _get(f"{API_URL}/users/{user_id}")
         if r.status_code == 200:
             return r.json()
+        print(f"[WARN] GET /users/{user_id} → {r.status_code}: {r.text[:200]}")
         return None
-    except:
+    except Exception as e:
+        log_error(f"api_get_user({user_id})", e)
         return None
 
 def api_create_user(user_id: int, role: str = "student", username: str = "") -> Optional[Dict[str, Any]]:
-    payload = {
-        "user_id": user_id,
-        "role": role,
-        "username": username
-    }
+    payload = {"user_id": user_id, "role": role, "username": username}
     try:
         r = _post(f"{API_URL}/users/", json=payload)
-        return r.json() if r.status_code == 200 else None
-    except:
+        if r.status_code == 200:
+            return r.json()
+        print(f"[WARN] POST /users → {r.status_code}: {r.text[:200]}")
+        return None
+    except Exception as e:
+        log_error(f"api_create_user({user_id})", e)
         return None
 
 def api_update_user(user_id: int, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     try:
         r = _put(f"{API_URL}/users/{user_id}", json=data)
-        return r.json() if r.status_code == 200 else None
-    except:
+        if r.status_code == 200:
+            return r.json()
+        print(f"[WARN] PUT /users/{user_id} → {r.status_code}: {r.text[:200]}")
+        return None
+    except Exception as e:
+        log_error(f"api_update_user({user_id})", e)
         return None
 
 def api_get_users() -> List[Dict[str, Any]]:
     try:
         r = _get(f"{API_URL}/users/")
-        return r.json() if r.status_code == 200 else []
-    except:
+        if r.status_code == 200:
+            return r.json()
+        print(f"[WARN] GET /users → {r.status_code}: {r.text[:200]}")
+        return []
+    except Exception as e:
+        log_error("api_get_users()", e)
         return []
 
 def api_get_all_groups() -> List[str]:
@@ -110,15 +129,23 @@ def api_get_all_groups() -> List[str]:
 def api_get_schedule(group_name: str) -> Optional[Dict[str, Any]]:
     try:
         r = _get(f"{API_URL}/schedule/{group_name}")
-        return r.json() if r.status_code == 200 else None
-    except:
+        if r.status_code == 200:
+            return r.json()
+        print(f"[WARN] GET /schedule/{group_name} → {r.status_code}: {r.text[:200]}")
         return None
-
+    except Exception as e:
+        log_error(f"api_get_schedule({group_name})", e)
+        return None
+    
 def api_get_teacher_schedule(fio_key: str) -> Optional[Dict[str, Any]]:
     try:
         r = _get(f"{API_URL}/schedule/teacher/{fio_key}")
-        return r.json() if r.status_code == 200 else None
-    except:
+        if r.status_code == 200:
+            return r.json()
+        print(f"[WARN] GET /schedule/teacher/{fio_key} → {r.status_code}: {r.text[:200]}")
+        return None
+    except Exception as e:
+        log_error(f"api_get_schedule({fio_key})", e)
         return None
 
 def api_upload_schedule(docx_bytes: bytes, shifts_json_bytes: Optional[bytes] = None) -> Optional[Dict[str, Any]]:
@@ -132,6 +159,18 @@ def api_upload_schedule(docx_bytes: bytes, shifts_json_bytes: Optional[bytes] = 
         return r.json() if r.status_code == 200 else None
     except:
         return None
+    
+def check_api_connection():
+    try:
+        print(f"🔍 Проверка API-доступности: {API_URL}")
+        r = _get(f"{API_URL}/users/")
+        if r.status_code == 200:
+            print("✅ API доступно, соединение установлено!")
+        else:
+            print(f"⚠️ API ответило с кодом {r.status_code}: {r.text[:100]}")
+    except Exception as e:
+        log_error("check_api_connection()", e)
+        print("❌ Не удалось подключиться к API. Проверь URL и сервер.")
 
 # ====================== ФИО: валидация и нормализация ======================
 FIO_FULL_RE = re.compile(
@@ -1207,6 +1246,7 @@ def process_teacher_task_file(message, group_name):
 if __name__ == "__main__":
     print("🤖 Бот запущен! Подключен к API:", API_URL)
     print(f"👑 Администраторы: {ADMINS}")
+    check_api_connection()
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(send_daily_schedule, "interval", minutes=1)
