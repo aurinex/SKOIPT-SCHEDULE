@@ -695,7 +695,7 @@ def show_user_management(call):
     total = len(api_get_users())
     bot.edit_message_text(
         f"👥 Управление пользователями\n\n"
-        f"Всего пользователей: {total}\n"
+        f"Всего пользователей: {total}!\n"
         f"Последние пользователи:\n{users_text}",
         user_id, message_id, reply_markup=keyboard
     )
