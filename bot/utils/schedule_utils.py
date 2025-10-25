@@ -26,28 +26,38 @@ def format_schedule_for_day(group_name: str, schedule_doc: Dict[str, Any], day: 
         return f"📅 В {day} пар нет"
     result = f"📚 Расписание на {day} ({group_name}):\n\n"
     lessons_today: List[str] = []
+    # Нулевая пара
     if zero_lesson:
         subject = zero_lesson.get('subject', '')
         classroom = zero_lesson.get('classroom', '')
         teacher = zero_lesson.get('teacher', '')
+        time_str = zero_lesson.get('time')
         if subject:
             lesson_text = f"0. {subject}"
             if classroom:
                 lesson_text += f" {classroom} каб."
             if teacher:
                 lesson_text += f" ({teacher})"
+            if time_str:
+                lesson_text += f" 🕒 {time_str}"
             lessons_today.append(lesson_text)
+            
+    # Основные пары
     for lesson_num, lesson_info in sorted((day_lessons or {}).items(), key=lambda x: int(x[0])):
         subject = lesson_info.get('subject', '')
         classroom = lesson_info.get('classroom', '')
         teacher = lesson_info.get('teacher', '')
+        time_str = zero_lesson.get('time')
         if subject:
             lesson_text = f"{lesson_num}. {subject}"
             if classroom:
                 lesson_text += f" {classroom} каб."
             if teacher:
                 lesson_text += f" ({teacher})"
+            if time_str:
+                lesson_text += f" 🕒 {time_str}"
             lessons_today.append(lesson_text)
+            
     if not lessons_today:
         return f"📅 В {day} пар нет"
     result += "\n".join(lessons_today)
@@ -69,11 +79,14 @@ def format_teacher_schedule_for_day(teacher_full_fio: str, schedule_doc: Dict[st
             subject = info.get('subject', '')
             group = info.get('group', '')
             room = info.get('classroom', '')
+            time_str = info.get('time')
             line = f"• {num}. {subject}"
             if group:
                 line += f" — {group}"
             if room:
                 line += f" ({room})"
+            if time_str:
+                line += f" 🕒 {time_str}"
             if shift_name == 'first_shift':
                 first_shift.append(line)
             else:
