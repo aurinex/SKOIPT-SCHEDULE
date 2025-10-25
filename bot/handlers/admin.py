@@ -6,6 +6,11 @@ from bot.handlers.commands import is_admin
 from bot.utils.api import (
     api_get_users, api_get_users_page_peek, api_update_user
 )
+from bot.utils.notifications import send_notification_progressively, handle_mass_notification
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("notify_all:") or call.data.startswith("skip_notify:"))
+def _notify_callback(call):
+    handle_mass_notification(call)
 
 def render_admin_panel(chat_id: int, message_id: int | None = None):
     text = "👑 Панель администратора\n\nВыберите действие:"
@@ -78,7 +83,7 @@ def admin_callback_handler(call):
     elif call.data == "admin_back":
         render_admin_panel(user_id, message_id=call.message.message_id)
         bot.answer_callback_query(call.id)
-        
+
 def process_bell_schedule_upload(message):
     """Принимает JSON и отправляет его на API /bell/upload"""
     user_id = message.from_user.id
@@ -119,43 +124,6 @@ def process_bell_schedule_upload(message):
         bot.send_message(user_id, f"⚠️ Ошибка: {e}")
     finally:
         pass  # Панель не возвращаем сразу — ждём решения админа
-
-def send_notification_progressively(bot, users, message_text: str, admin_id: int, context_name: str):
-    """
-    Асинхронная рассылка уведомлений пользователям с отображением прогресса.
-    Работает в отдельном потоке, чтобы не блокировать основного бота.
-    """
-    total = len(users)
-    sent = 0
-    update_step = max(1, total // 10)  # обновлять каждые 10% рассылки
-
-    status_msg = bot.send_message(admin_id, f"📤 Начинаю рассылку ({context_name})...\nОтправлено 0 из {total}")
-
-    for u in users:
-        try:
-            uid = u.get("user_id")
-            if not uid:
-                continue
-            bot.send_message(uid, message_text)
-            sent += 1
-        except Exception:
-            pass
-
-        if sent % update_step == 0 or sent == total:
-            try:
-                bot.edit_message_text(
-                    f"📨 Рассылка ({context_name})...\nОтправлено {sent} из {total}",
-                    admin_id,
-                    status_msg.message_id
-                )
-            except Exception:
-                pass
-
-        # небольшая пауза, чтобы не получить flood control от Telegram
-        asyncio.run(asyncio.sleep(0.05))
-
-    bot.send_message(admin_id, f"✅ Рассылка завершена! Отправлено {sent} из {total}.")
-    render_admin_panel(admin_id)
     
 @bot.callback_query_handler(func=lambda call: call.data.startswith("notify_all:") or call.data.startswith("skip_notify:"))
 def handle_mass_notification(call):
