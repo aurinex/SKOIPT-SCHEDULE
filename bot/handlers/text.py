@@ -9,13 +9,79 @@ from bot.utils.schedule_utils import (
 )
 from bot.utils.fio_utils import fio_full_to_initials
 from bot.keyboards import create_main_keyboard
+from bot.handlers.teachers import TEACHER_TARGET_GROUP, TEACHER_SELECTING_GROUP
 
 pending_uploads = {}  # user_id → {"docx": bytes, "json": bytes}
 
-@bot.message_handler(func=lambda message: True, content_types=['text', 'document'])
+@bot.message_handler(func=lambda message: True, content_types=['text', 'document', 'photo'])
 def text_message_handler(message):
     user_id = int(message.from_user.id)
 
+    # ==== 0) Преподаватель уже выбрал целевую группу — ловим ЛЮБОЕ сообщение и рассылаем ====
+    if is_teacher(user_id) and TEACHER_TARGET_GROUP.get(user_id):
+        target_group = TEACHER_TARGET_GROUP[user_id]
+        user = api_get_user(user_id) or {}
+        teacher_fio = user.get("teacher_fio", "Неизвестно")
+        students = [u for u in api_get_users() if u.get("group_name") == target_group]
+
+        sent = 0
+        # ТОЛЬКО ТЕКСТ
+        if message.content_type == "text" and (message.text or "").strip():
+            text_body = (message.text or "").strip()
+            header = f"📚 Новое задание от *{teacher_fio}* для группы *{target_group}*:\n\n"
+            for s in students:
+                try:
+                    bot.send_message(s["user_id"], header + text_body, parse_mode="Markdown")
+                    sent += 1
+                except Exception:
+                    pass
+            bot.send_message(user_id, f"✅ Текстовое задание отправлено {sent} студентам группы *{target_group}*.", parse_mode="Markdown")
+            return
+
+        # ДОКУМЕНТ (caption как текст)
+        if message.content_type == "document":
+            caption = message.caption or ""
+            header = f"📚 Новое задание от *{teacher_fio}* для группы *{target_group}*"
+            cap = f"{header}\n\n{caption}".strip()
+            for s in students:
+                try:
+                    bot.send_document(
+                        s["user_id"],
+                        message.document.file_id,
+                        caption=cap,
+                        parse_mode="Markdown"
+                    )
+                    sent += 1
+                except Exception:
+                    pass
+            bot.send_message(user_id, f"✅ Документ отправлен {sent} студентам группы *{target_group}*.", parse_mode="Markdown")
+            return
+
+        # ФОТО (caption как текст)
+        if message.content_type == "photo":
+            photo_id = message.photo[-1].file_id
+            caption = message.caption or ""
+            header = f"📚 Новое задание от *{teacher_fio}* для группы *{target_group}*"
+            cap = f"{header}\n\n{caption}".strip()
+            for s in students:
+                try:
+                    bot.send_photo(
+                        s["user_id"],
+                        photo_id,
+                        caption=cap,
+                        parse_mode="Markdown"
+                    )
+                    sent += 1
+                except Exception:
+                    pass
+            bot.send_message(user_id, f"✅ Фото отправлено {sent} студентам группы *{target_group}*.", parse_mode="Markdown")
+            return
+
+        # Иные типы
+        bot.send_message(user_id, "⚠️ Пришлите текст, документ или фото. Либо нажмите «Назад», чтобы выбрать другую группу.")
+        return
+
+    # ==== 1) Админская загрузка DOCX/JSON ====
     if message.content_type == 'document':
         user = api_get_user(user_id) or {}
         if user.get('role') != 'admin':
@@ -84,6 +150,7 @@ def text_message_handler(message):
             )
         return
 
+    # ==== 2) Обычные текстовые кнопки ====
     text = (message.text or '').strip()
 
     if text == "⏩ Пропустить" and is_admin(user_id):
@@ -98,8 +165,31 @@ def text_message_handler(message):
         )
         return
 
+    # ---- 2.a) Преподаватель в режиме выбора «Другая группа» — ловим нажатие группы с клавиатуры ----
+    if is_teacher(user_id) and TEACHER_SELECTING_GROUP.get(user_id):
+        groups = set(api_get_all_groups())
+        if text in groups:
+            TEACHER_SELECTING_GROUP[user_id] = False
+            TEACHER_TARGET_GROUP[user_id] = text
+
+            ikb = types.InlineKeyboardMarkup()
+            ikb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="teacher_other_group"))
+
+            bot.send_message(
+                user_id,
+                f"✅ Вы выбрали группу *{text}*.\n\n"
+                f"Если всё верно, прикрепите документ или фото.\n"
+                f"_Также можно просто написать текст — он уйдёт студентам этой группы._",
+                parse_mode="Markdown",
+                reply_markup=ikb
+            )
+            return
+        # если нажали не группу — падаем в обычную логику ниже
+
+    # ---- 2.b) Выбор группы (обычный сценарий для студента) ----
     if text in set(api_get_all_groups()):
         if is_teacher(user_id):
+            # Для преподавателя при обычном нажатии покажем расписание группы
             group_name = text
             sch = api_get_schedule(group_name)
             schedule_text = format_schedule_for_day(group_name, sch or {}, get_current_day() or "Понедельник")
@@ -126,6 +216,7 @@ def text_message_handler(message):
         from bot.handlers.admin import admin_command
         admin_command(message)
         return
+
     if text == "👨‍🏫 Панель преподавателя" and is_teacher(user_id):
         from bot.handlers.teachers import teacher_command
         teacher_command(message)

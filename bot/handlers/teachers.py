@@ -1,9 +1,14 @@
 from telebot import types
 from bot.core import bot
 from bot.handlers.commands import is_teacher, is_admin
-from bot.utils.api import api_get_user, api_get_teacher_schedule, api_get_users
+from bot.keyboards import group_selection_keyboard
+from bot.utils.api import api_get_user, api_get_teacher_schedule, api_get_users, api_get_all_groups  
 from bot.utils.fio_utils import fio_full_to_initials, normalize_full_fio, is_valid_full_fio
 from bot.utils.schedule_utils import get_current_day, format_teacher_schedule_for_day
+
+# Служебное состояние: что сейчас выбирает/куда шлёт задания препод
+TEACHER_TARGET_GROUP: dict[int, str] = {}
+TEACHER_SELECTING_GROUP: dict[int, bool] = {}
 
 @bot.message_handler(commands=['teacher'])
 def teacher_command(message):
@@ -72,6 +77,7 @@ def teacher_callback_handler(call):
                 reply_markup=kb
             )
         else:
+            kb.add(types.InlineKeyboardButton("⬅️ Другая группа", callback_data="teacher_other_group"))
             kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="teacher_back"))
             bot.edit_message_text(
                 f"👨‍🏫 Мои занятия\n\n"
@@ -95,6 +101,31 @@ def teacher_callback_handler(call):
             reply_markup=kb
         )
         bot.answer_callback_query(call.id)
+        return
+    
+    elif call.data == "teacher_other_group":
+        # включаем режим выбора группы для отправки задания
+        TEACHER_SELECTING_GROUP[user_id] = True
+        TEACHER_TARGET_GROUP.pop(user_id, None)
+
+        # показываем уже готовую клавиатуру групп
+        kb_reply = group_selection_keyboard(is_admin=False)
+
+        # чтобы не висело старое сообщение с инлайн-кнопками
+        try:
+            bot.answer_callback_query(call.id)
+        except Exception:
+            pass
+        try:
+            bot.delete_message(user_id, call.message.message_id)
+        except Exception:
+            pass
+
+        bot.send_message(
+            user_id,
+            "👥 Выберите группу ниже:",
+            reply_markup=kb_reply
+        )
         return
 
     elif call.data == "teacher_settings":
@@ -220,4 +251,24 @@ def process_teacher_task_file(message, group_name):
         user_id,
         f"✅ Задание успешно отправлено {count_sent} студентам группы *{group_name}*.",
         parse_mode="Markdown"
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "teacher_other_group")
+def teacher_other_group_start(call):
+    user_id = call.from_user.id
+    if not is_teacher(user_id):
+        bot.answer_callback_query(call.id, "❌ У вас нет прав для этого действия")
+        return
+
+    # флаг "сейчас выбираем группу"
+    TEACHER_SELECTING_GROUP[user_id] = True
+    # сбросить текущую цель (чтобы не отправляли старой группе по ошибке)
+    TEACHER_TARGET_GROUP.pop(user_id, None)
+
+    kb = group_selection_keyboard(is_admin=False)  # берём уже готовую клавиатуру
+    bot.answer_callback_query(call.id)
+    bot.send_message(
+        user_id,
+        "👥 Выберите группу ниже:",
+        reply_markup=kb
     )
