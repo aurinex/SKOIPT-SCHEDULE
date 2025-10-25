@@ -6,26 +6,54 @@ from telebot import types
 from bot.utils.api import api_get_users
 
 
-def send_notification_progressively(bot, users, message_text: str, admin_id: int, context_name: str):
+
+def send_notification_progressively(bot, users, message, admin_id: int, context_name: str):
     """
-    Асинхронная рассылка уведомлений пользователям с отображением прогресса.
-    Работает в отдельном потоке, чтобы не блокировать основного бота.
+    Асинхронная рассылка сообщений пользователям с отображением прогресса.
+    Может отправлять текст, фото, видео, документы, стикеры и т.д.
     """
     total = len(users)
     sent = 0
-    update_step = max(1, total // 10)  # обновлять каждые 10% рассылки
+    update_step = max(1, total // 10)  # обновлять каждые ~10%
 
-    status_msg = bot.send_message(admin_id, f"📤 Начинаю рассылку ({context_name})...\nОтправлено 0 из {total}")
+    status_msg = bot.send_message(
+        admin_id,
+        f"📤 Начинаю рассылку ({context_name})...\nОтправлено 0 из {total}"
+    )
 
     for u in users:
         try:
             uid = u.get("user_id")
             if not uid:
                 continue
-            bot.send_message(uid, message_text)
+
+            # поддержка всех типов контента
+            ctype = message.content_type
+            caption = getattr(message, "caption", None) or ""
+
+            if ctype == "text":
+                bot.send_message(uid, message.text)
+            elif ctype == "photo":
+                bot.send_photo(uid, message.photo[-1].file_id, caption=caption)
+            elif ctype == "video":
+                bot.send_video(uid, message.video.file_id, caption=caption)
+            elif ctype == "document":
+                bot.send_document(uid, message.document.file_id, caption=caption)
+            elif ctype == "sticker":
+                bot.send_sticker(uid, message.sticker.file_id)
+            elif ctype == "voice":
+                bot.send_voice(uid, message.voice.file_id, caption=caption)
+            elif ctype == "audio":
+                bot.send_audio(uid, message.audio.file_id, caption=caption)
+            elif ctype == "animation":
+                bot.send_animation(uid, message.animation.file_id, caption=caption)
+            else:
+                # неизвестный тип
+                continue
+
             sent += 1
         except Exception:
-            pass
+            continue
 
         if sent % update_step == 0 or sent == total:
             try:
@@ -34,10 +62,10 @@ def send_notification_progressively(bot, users, message_text: str, admin_id: int
                     admin_id,
                     status_msg.message_id
                 )
-            except Exception:
+            except:
                 pass
 
-        asyncio.run(asyncio.sleep(0.05))  # задержка от flood control
+        asyncio.run(asyncio.sleep(0.05))  # анти-flood
 
     bot.send_message(admin_id, f"✅ Рассылка завершена! Отправлено {sent} из {total}.")
     from bot.handlers.admin import render_admin_panel

@@ -17,6 +17,7 @@ def render_admin_panel(chat_id: int, message_id: int | None = None):
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("👥 Управление пользователями", callback_data="admin_users"))
     kb.add(types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"))
+    kb.add(types.InlineKeyboardButton("📢 Рассылка сообщения", callback_data="admin_broadcast"))
     kb.add(types.InlineKeyboardButton("🔄 Обновить расписание", callback_data="admin_refresh"))
     kb.add(types.InlineKeyboardButton("🔔 Обновить расписание звонков", callback_data="admin_refresh_bell"))
     if message_id:
@@ -31,6 +32,23 @@ def admin_command(message):
         bot.send_message(user_id, "❌ У вас нет прав для доступа к этой команде.")
         return
     render_admin_panel(user_id)
+    
+@bot.callback_query_handler(func=lambda call: call.data == "admin_broadcast")
+def admin_broadcast(call):
+    """Админ инициирует рассылку произвольного сообщения"""
+    user_id = call.from_user.id
+    if not is_admin(user_id):
+        bot.answer_callback_query(call.id, "❌ У вас нет прав для этого действия")
+        return
+
+    bot.answer_callback_query(call.id)
+    msg = bot.send_message(
+        user_id,
+        "📣 Отправьте сообщение, которое нужно разослать всем пользователям.\n\n"
+        "Можно отправить текст, фото, видео, стикер, документ и т.д.\n"
+        "Для отмены — напишите «отмена»."
+    )
+    bot.register_next_step_handler(msg, process_admin_broadcast)
     
 @bot.callback_query_handler(func=lambda call: call.data == "admin_refresh_bell")
 def admin_refresh_bell(call):
@@ -83,6 +101,25 @@ def admin_callback_handler(call):
     elif call.data == "admin_back":
         render_admin_panel(user_id, message_id=call.message.message_id)
         bot.answer_callback_query(call.id)
+    
+def process_admin_broadcast(message):
+    """Отправляет сообщение всем пользователям через notifications.send_notification_progressively"""
+    from bot.utils.notifications import send_notification_progressively
+    from bot.utils.api import api_get_users
+    from bot.handlers.admin import render_admin_panel
+
+    admin_id = message.from_user.id
+
+    if message.text and message.text.lower() in ("отмена", "cancel"):
+        bot.send_message(admin_id, "❌ Рассылка отменена.")
+        render_admin_panel(admin_id)
+        return
+
+    users = api_get_users()
+    Thread(
+        target=send_notification_progressively,
+        args=(bot, users, message, admin_id, "manual_broadcast"),
+    ).start()
 
 def process_bell_schedule_upload(message):
     """Принимает JSON и отправляет его на API /bell/upload"""
