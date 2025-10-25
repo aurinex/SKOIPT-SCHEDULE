@@ -149,3 +149,19 @@ def check_api_connection():
     except Exception as e:
         log_error("check_api_connection()", e)
         print("❌ Не удалось подключиться к API. Проверь URL и сервер.")
+
+def api_upload_bell_schedule(json_bytes: bytes):
+    """
+    Отправляет bell_schedule.json на сервер (эндпоинт /bell_schedule/bell/upload)
+    """
+    files = {
+        "file": ("bell_schedule.json", json_bytes, "application/json"),
+    }
+    try:
+        resp = _post(f"{API_URL}/bell_schedule/bell/upload", files=files)
+        if resp.status_code == 200:
+            return resp.json()
+        print("Ошибка при загрузке звонков:", resp.text)
+    except Exception as e:
+        log_error("api_upload_bell_schedule()", e)
+    return None

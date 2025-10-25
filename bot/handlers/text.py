@@ -313,13 +313,13 @@ def text_message_handler(message):
         keyboard = create_main_keyboard(user_id, is_teacher=is_teacher(user_id), is_admin=is_admin(user_id))
 
         if resp is not None:
-            bot.send_message(user_id, "✅ Расписание успешно обновлено!", reply_markup=keyboard)
-            users = api_get_users()
-            for u in users:
-                try:
-                    bot.send_message(u["user_id"], "📢 Расписание обновлено! Проверьте своё расписание в боте.")
-                except Exception:
-                    pass
+            msg_text = "✅ Расписание успешно обновлено!\n\n📣 Уведомить всех пользователей о новых расписаниях?"
+            kb = types.InlineKeyboardMarkup()
+            kb.add(
+                types.InlineKeyboardButton("✅ Да, уведомить всех", callback_data="notify_all:schedule"),
+                types.InlineKeyboardButton("🚫 Нет, не уведомлять", callback_data="skip_notify:schedule")
+            )
+            bot.send_message(user_id, msg_text, reply_markup=kb)
         else:
             bot.send_message(user_id, "❌ Ошибка при загрузке расписания.", reply_markup=keyboard)
         return
@@ -338,14 +338,13 @@ def text_message_handler(message):
         keyboard = create_main_keyboard(user_id, is_teacher=is_teacher(user_id), is_admin=is_admin(user_id))
 
         if resp is not None:
-            bot.send_message(user_id, "✅ Расписание успешно обновлено!", reply_markup=keyboard)
-            users = api_get_users()
-            for u in users:
-                uid = u.get("user_id")
-                try:
-                    bot.send_message(uid, "📢 Расписание обновлено! Проверьте своё расписание.")
-                except Exception:
-                    pass
+            msg_text = "✅ Расписание успешно обновлено!\n\n📣 Уведомить всех пользователей о новых расписаниях?"
+            kb = types.InlineKeyboardMarkup()
+            kb.add(
+                types.InlineKeyboardButton("✅ Да, уведомить всех", callback_data="notify_all:schedule"),
+                types.InlineKeyboardButton("🚫 Нет, не уведомлять", callback_data="skip_notify:schedule")
+            )
+            bot.send_message(user_id, msg_text, reply_markup=kb)
         else:
             bot.send_message(user_id, "❌ Ошибка при загрузке расписания.", reply_markup=keyboard)
         return

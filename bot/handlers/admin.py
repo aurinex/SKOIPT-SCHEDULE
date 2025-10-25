@@ -1,3 +1,5 @@
+import asyncio
+from threading import Thread
 from telebot import types
 from bot.core import bot
 from bot.handlers.commands import is_admin
@@ -11,6 +13,7 @@ def render_admin_panel(chat_id: int, message_id: int | None = None):
     kb.add(types.InlineKeyboardButton("👥 Управление пользователями", callback_data="admin_users"))
     kb.add(types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"))
     kb.add(types.InlineKeyboardButton("🔄 Обновить расписание", callback_data="admin_refresh"))
+    kb.add(types.InlineKeyboardButton("🔔 Обновить расписание звонков", callback_data="admin_refresh_bell"))
     if message_id:
         bot.edit_message_text(text, chat_id, message_id, reply_markup=kb)
     else:
@@ -23,6 +26,22 @@ def admin_command(message):
         bot.send_message(user_id, "❌ У вас нет прав для доступа к этой команде.")
         return
     render_admin_panel(user_id)
+    
+@bot.callback_query_handler(func=lambda call: call.data == "admin_refresh_bell")
+def admin_refresh_bell(call):
+    """Админ обновляет расписание звонков"""
+    user_id = call.from_user.id
+    if not is_admin(user_id):
+        bot.answer_callback_query(call.id, "❌ У вас нет прав для этого действия")
+        return
+
+    bot.answer_callback_query(call.id, "📤 Отправьте JSON-файл с расписанием звонков")
+    msg = bot.send_message(
+        user_id,
+        "📤 Отправьте JSON-файл `bell_schedule.json` или другой файл в том же формате.\n"
+        "Он будет отправлен на сервер и применён ко всем расписаниям."
+    )
+    bot.register_next_step_handler(msg, process_bell_schedule_upload)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('admin_'))
 def admin_callback_handler(call):
@@ -59,6 +78,123 @@ def admin_callback_handler(call):
     elif call.data == "admin_back":
         render_admin_panel(user_id, message_id=call.message.message_id)
         bot.answer_callback_query(call.id)
+        
+def process_bell_schedule_upload(message):
+    """Принимает JSON и отправляет его на API /bell/upload"""
+    user_id = message.from_user.id
+
+    if message.content_type != "document":
+        bot.send_message(user_id, "❌ Пришлите именно JSON-файл.")
+        render_admin_panel(user_id)
+        return
+
+    try:
+        file_info = bot.get_file(message.document.file_id)
+        file_bytes = bot.download_file(file_info.file_path)
+        fname = message.document.file_name.lower()
+
+        if not fname.endswith(".json"):
+            bot.send_message(user_id, "❌ Это не JSON-файл.")
+            render_admin_panel(user_id)
+            return
+
+        bot.send_message(user_id, "⏳ Загружаю расписание звонков на сервер...")
+
+        from bot.utils.api import api_upload_bell_schedule
+        resp = api_upload_bell_schedule(file_bytes)
+
+        if resp:
+            msg_text = f"✅ Расписание звонков успешно обновлено!\n\n"
+            msg_text += "📣 Уведомить всех пользователей о новых звонках?"
+
+            kb = types.InlineKeyboardMarkup()
+            kb.add(
+                types.InlineKeyboardButton("✅ Да, уведомить всех", callback_data="notify_all:bell"),
+                types.InlineKeyboardButton("🚫 Нет, не уведомлять", callback_data="skip_notify:bell")
+            )
+            bot.send_message(user_id, msg_text, reply_markup=kb)
+        else:
+            bot.send_message(user_id, "❌ Ошибка при загрузке расписания звонков.")
+    except Exception as e:
+        bot.send_message(user_id, f"⚠️ Ошибка: {e}")
+    finally:
+        pass  # Панель не возвращаем сразу — ждём решения админа
+
+def send_notification_progressively(bot, users, message_text: str, admin_id: int, context_name: str):
+    """
+    Асинхронная рассылка уведомлений пользователям с отображением прогресса.
+    Работает в отдельном потоке, чтобы не блокировать основного бота.
+    """
+    total = len(users)
+    sent = 0
+    update_step = max(1, total // 10)  # обновлять каждые 10% рассылки
+
+    status_msg = bot.send_message(admin_id, f"📤 Начинаю рассылку ({context_name})...\nОтправлено 0 из {total}")
+
+    for u in users:
+        try:
+            uid = u.get("user_id")
+            if not uid:
+                continue
+            bot.send_message(uid, message_text)
+            sent += 1
+        except Exception:
+            pass
+
+        if sent % update_step == 0 or sent == total:
+            try:
+                bot.edit_message_text(
+                    f"📨 Рассылка ({context_name})...\nОтправлено {sent} из {total}",
+                    admin_id,
+                    status_msg.message_id
+                )
+            except Exception:
+                pass
+
+        # небольшая пауза, чтобы не получить flood control от Telegram
+        asyncio.run(asyncio.sleep(0.05))
+
+    bot.send_message(admin_id, f"✅ Рассылка завершена! Отправлено {sent} из {total}.")
+    render_admin_panel(admin_id)
+    
+@bot.callback_query_handler(func=lambda call: call.data.startswith("notify_all:") or call.data.startswith("skip_notify:"))
+def handle_mass_notification(call):
+    """
+    Универсальный обработчик для уведомлений (расписание, звонки и т.д.)
+    Пример callback_data:
+      notify_all:bell   — уведомить всех о звонках
+      notify_all:schedule — уведомить всех о расписании
+      skip_notify:bell  — пропустить уведомление
+    """
+    user_id = call.from_user.id
+    if not is_admin(user_id):
+        bot.answer_callback_query(call.id, "❌ Нет прав.")
+        return
+
+    parts = call.data.split(":")
+    action = parts[0]  # notify_all / skip_notify
+    context_name = parts[1] if len(parts) > 1 else "update"
+
+    if action == "skip_notify":
+        bot.answer_callback_query(call.id, "⏸ Уведомления пропущены.")
+        bot.send_message(user_id, f"✅ Обновление '{context_name}' завершено без уведомлений.")
+        render_admin_panel(user_id)
+        return
+
+    bot.answer_callback_query(call.id, f"📢 Начинаю уведомление ({context_name})...")
+    from bot.utils.api import api_get_users
+    users = api_get_users()
+
+    # текст уведомления можно менять в зависимости от типа
+    if context_name == "bell":
+        msg_text = "🔔 Обновлено расписание звонков!"
+    elif context_name == "schedule":
+        msg_text = "📚 Обновлено основное расписание занятий!"
+    else:
+        msg_text = "📢 Новое обновление в системе!"
+
+    # запускаем рассылку в отдельном потоке
+    Thread(target=send_notification_progressively, args=(bot, users, msg_text, user_id, context_name)).start()
 
 def show_user_management(call, skip: int = 0, limit: int = 10):
     user_id = call.from_user.id

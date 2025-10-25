@@ -39,7 +39,7 @@ def format_schedule_for_day(group_name: str, schedule_doc: Dict[str, Any], day: 
             if teacher:
                 lesson_text += f" ({teacher})"
             if time_str:
-                lesson_text += f" 🕒 {time_str}"
+                lesson_text += f"\n 🕒 {time_str}"
             lessons_today.append(lesson_text)
             
     # Основные пары
@@ -55,7 +55,7 @@ def format_schedule_for_day(group_name: str, schedule_doc: Dict[str, Any], day: 
             if teacher:
                 lesson_text += f" ({teacher})"
             if time_str:
-                lesson_text += f" 🕒 {time_str}"
+                lesson_text += f"\n 🕒 {time_str}"
             lessons_today.append(lesson_text)
             
     if not lessons_today:
@@ -86,7 +86,7 @@ def format_teacher_schedule_for_day(teacher_full_fio: str, schedule_doc: Dict[st
             if room:
                 line += f" ({room})"
             if time_str:
-                line += f" 🕒 {time_str}"
+                line += f"\n 🕒 {time_str}"
             if shift_name == 'first_shift':
                 first_shift.append(line)
             else:
