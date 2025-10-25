@@ -47,7 +47,7 @@ def format_schedule_for_day(group_name: str, schedule_doc: Dict[str, Any], day: 
         subject = lesson_info.get('subject', '')
         classroom = lesson_info.get('classroom', '')
         teacher = lesson_info.get('teacher', '')
-        time_str = zero_lesson.get('time')
+        time_str = lesson_info.get('time')
         if subject:
             lesson_text = f"{lesson_num}. {subject}"
             if classroom:
