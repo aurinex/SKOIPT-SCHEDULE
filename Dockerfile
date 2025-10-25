@@ -19,4 +19,4 @@ COPY . .
 EXPOSE 3020
 
 # ========== Запуск ==========
-CMD ["python", "bot.py"]
+CMD ["python", "main.py"]
