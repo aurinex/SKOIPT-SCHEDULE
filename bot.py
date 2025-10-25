@@ -11,12 +11,13 @@ from requests.adapters import HTTPAdapter, Retry
 import telebot
 from telebot import types
 import traceback
+from zoneinfo import ZoneInfo
 
 pending_uploads = {}  # user_id → {"docx": bytes, "json": bytes}
 
 def log_error(context: str, e: Exception):
     """Выводит понятный лог об ошибке с указанием контекста"""
-    print(f"\n[❌ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Ошибка в {context}:")
+    print(f"\n[❌ {datetime.now(ZoneInfo("Asia/Yekaterinburg")).weekday().strftime('%Y-%m-%d %H:%M:%S')}] Ошибка в {context}:")
     print(f"Тип: {type(e).__name__}")
     print(f"Описание: {e}")
     tb = traceback.format_exc(limit=2)
@@ -26,7 +27,7 @@ def log_error(context: str, e: Exception):
 
 # ============================ КОНФИГ ============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8253140899:AAFPdH80KTgoKRAUTyuqBJhrs_DLIkw9zto")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_URL = os.getenv("API_URL", "http://172.17.0.1:3020")
 
 # Роли пользователей
@@ -328,13 +329,13 @@ def format_teacher_schedule_for_day(teacher_full_fio: str, schedule_doc: Dict[st
 # ====================== ДНИ НЕДЕЛИ ======================
 
 def get_current_day() -> Optional[str]:
-    today = datetime.now().weekday()
+    today = datetime.now(ZoneInfo("Asia/Yekaterinburg")).weekday()
     if today == 6:
         return None
     return days_ru[today]
 
 def get_tomorrow_day() -> Optional[str]:
-    tomorrow = (datetime.now() + timedelta(days=1)).weekday()
+    tomorrow = (datetime.now(ZoneInfo("Asia/Yekaterinburg")).weekday() + timedelta(days=1)).weekday()
     if tomorrow == 6:
         return None
     return days_ru[tomorrow]
@@ -1311,7 +1312,7 @@ def text_message_handler(message):
     )
 
 def send_daily_schedule():
-    now = datetime.now().strftime("%H:%M")
+    now = datetime.now(ZoneInfo("Asia/Yekaterinburg")).weekday().strftime("%H:%M")
     users = api_get_users()
     for u in users:
         if not u.get("schedule_enabled"):
