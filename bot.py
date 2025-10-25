@@ -1312,7 +1312,7 @@ def text_message_handler(message):
     )
 
 def send_daily_schedule():
-    now = datetime.now(ZoneInfo("Asia/Yekaterinburg")).weekday().strftime("%H:%M")
+    now = datetime.now(ZoneInfo("Asia/Yekaterinburg")).strftime("%H:%M")
     users = api_get_users()
     for u in users:
         if not u.get("schedule_enabled"):
