@@ -17,7 +17,7 @@ pending_uploads = {}  # user_id → {"docx": bytes, "json": bytes}
 
 def log_error(context: str, e: Exception):
     """Выводит понятный лог об ошибке с указанием контекста"""
-    print(f"\n[❌ {datetime.now(ZoneInfo("Asia/Yekaterinburg")).weekday().strftime('%Y-%m-%d %H:%M:%S')}] Ошибка в {context}:")
+    print(f"\n[❌ {datetime.now(ZoneInfo('Asia/Yekaterinburg')).strftime('%Y-%m-%d %H:%M:%S')}] Ошибка в {context}:")
     print(f"Тип: {type(e).__name__}")
     print(f"Описание: {e}")
     tb = traceback.format_exc(limit=2)
