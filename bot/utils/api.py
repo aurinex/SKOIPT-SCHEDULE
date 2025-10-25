@@ -51,7 +51,11 @@ def api_update_user(user_id: int, data: Dict[str, Any]) -> Optional[Dict[str, An
 
 def api_get_users() -> List[Dict[str, Any]]:
     try:
-        r = _get(f"{API_URL}/users/")
+        params = {
+            "skip": 0,
+            "limit": 1000
+        }
+        r = _get(f"{API_URL}/users/", params=params)
         if r.status_code == 200:
             return r.json()
         print(f"[WARN] GET /users → {r.status_code}: {r.text[:200]}")
