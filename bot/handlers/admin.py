@@ -53,7 +53,6 @@ def admin_broadcast(call):
     
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_group_stats"))
 def admin_group_stats_handler(call):
-    print("show admin_group_stats")
     """Хэндлер для показа статистики по группам с пагинацией."""
     user_id = call.from_user.id
     if not is_admin(user_id):
@@ -321,18 +320,18 @@ def show_admin_group_stats(call, page: int = 0, per_page: int = 20):
     Выводит статистику количества студентов по группам.
     - Считаются только пользователи role == 'student'
     - Пустые/None группы сводятся к 'без группы'
-    - Сортировка: по убыванию количества, затем по названию группы
+    - Сортировка: алфавитная (числа идут по возрастанию)
     - Пагинация
     """
     user_id = call.from_user.id
     message_id = call.message.message_id
 
     users = api_get_users()
-    # считаем только студентов
     from collections import defaultdict
     groups_count = defaultdict(int)
     total_students = 0
 
+    # Подсчёт студентов по группам
     for u in users:
         if u.get("role") != "student":
             continue
@@ -341,23 +340,29 @@ def show_admin_group_stats(call, page: int = 0, per_page: int = 20):
         gname = gname if gname else "без группы"
         groups_count[gname] += 1
 
-    # подготовка данных и сортировка
-    items = sorted(
-        groups_count.items(),
-        key=lambda kv: (kv[0] == "без группы", -kv[1], kv[0])
-    )
+    # --- сортировка: сначала "нормальные" группы по числу/алфавиту, потом "без группы" ---
+    import re
+    def sort_key(item):
+        name = item[0]
+        if name == "без группы":
+            return (9999, "ЯЯЯ")  # в самый конец
+        m = re.match(r"(\d+)", name)
+        num = int(m.group(1)) if m else 0
+        letters = re.sub(r"^\d+", "", name)
+        return (num, letters.upper())
+
+    items = sorted(groups_count.items(), key=sort_key)
     total_groups = len(items)
 
-    # пагинация
+    # --- пагинация ---
     page = max(0, int(page))
     per_page = max(5, int(per_page))
     start = page * per_page
     end = start + per_page
     page_items = items[start:end]
 
-    # формируем текст
+    # --- формирование текста ---
     lines = [f"• {g} — {cnt}" for g, cnt in page_items] or ["—"]
-
     page_num = page + 1
     page_total = (total_groups + per_page - 1) // per_page if total_groups else 1
 
@@ -369,7 +374,7 @@ def show_admin_group_stats(call, page: int = 0, per_page: int = 20):
         "\n".join(lines)
     )
 
-    # кнопки навигации
+    # --- кнопки ---
     kb = types.InlineKeyboardMarkup(row_width=3)
     nav = []
     if page > 0:
@@ -379,7 +384,6 @@ def show_admin_group_stats(call, page: int = 0, per_page: int = 20):
     if nav:
         kb.add(*nav)
 
-    # назад в общую статистику
     kb.add(types.InlineKeyboardButton("⬅️ Назад к статистике", callback_data="admin_stats"))
     kb.add(types.InlineKeyboardButton("🏠 В админ-панель", callback_data="admin_panel"))
 
