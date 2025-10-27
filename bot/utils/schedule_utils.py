@@ -3,6 +3,20 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from config import DAYS_RU, TZ
 
+DAY_PREP_CASE = {
+    "Понедельник": "в понедельник",
+    "Вторник":     "во вторник",
+    "Среда":       "в среду",
+    "Четверг":     "в четверг",
+    "Пятница":     "в пятницу",
+    "Суббота":     "в субботу",
+    "Воскресенье": "в воскресенье",
+}
+
+def in_day_ru(day: str) -> str:
+    """Возвращает 'в понедельник/во вторник/в среду/...' (с маленькой буквы)."""
+    return DAY_PREP_CASE.get(day, f"в {day.lower()}")
+
 def get_current_day() -> Optional[str]:
     today = datetime.now(ZoneInfo(TZ)).weekday()
     if today == 6:
@@ -23,7 +37,7 @@ def format_schedule_for_day(group_name: str, schedule_doc: Dict[str, Any], day: 
     zero_lesson = (schedule.get('zero_lesson') or {}).get(day, {})
     day_lessons = (schedule.get('days') or {}).get(day, {})
     if not zero_lesson and not day_lessons:
-        return f"📅 В {day} пар нет"
+        return f"📅 {in_day_ru(day).capitalize()} пар нет"
     result = f"📚 Расписание на {day} ({group_name}):\n\n"
     lessons_today: List[str] = []
     # Нулевая пара
@@ -59,7 +73,7 @@ def format_schedule_for_day(group_name: str, schedule_doc: Dict[str, Any], day: 
             lessons_today.append(lesson_text)
             
     if not lessons_today:
-        return f"📅 В {day} пар нет"
+        return f"📅 {in_day_ru(day).capitalize()} пар нет"
     result += "\n".join(lessons_today)
     return result
 
@@ -93,7 +107,7 @@ def format_teacher_schedule_for_day(teacher_full_fio: str, schedule_doc: Dict[st
                 second_shift.append(line)
 
     if not first_shift and not second_shift:
-        return f"📅 В {day} пар нет"
+        return f"📅 {in_day_ru(day).capitalize()} пар нет"
 
     parts = [f"👨‍🏫 Расписание преподавателя на {day}\n{teacher_full_fio}"]
     if first_shift:

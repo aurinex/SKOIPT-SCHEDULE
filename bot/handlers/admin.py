@@ -205,17 +205,28 @@ def show_user_management(call, skip: int = 0, limit: int = 10):
     user_id = call.from_user.id
     message_id = call.message.message_id
 
+    # нормализуем пагинацию
     skip = max(0, int(skip))
     limit = max(1, int(limit))
 
-    rows, has_next = api_get_users_page_peek(skip=skip, limit=limit)
-    if not rows and skip > 0:
-        skip = max(0, skip - limit)
-        rows, has_next = api_get_users_page_peek(skip=skip, limit=limit)
+    # 1) забираем всех пользователей (до 1000 с бэка)
+    all_users = api_get_users()  # [ {user_id, username, role, ...}, ... ]
+    # 2) разворачиваем список: новые -> первые
+    users_desc = list(reversed(all_users))
+
+    total = len(users_desc)
+    if total == 0:
+        users_desc = []
+    # поправляем skip, чтобы не выйти за границы
+    if skip >= total:
+        skip = max(0, total - (total % limit or limit))
+
+    # 3) страница
+    page_rows = users_desc[skip: skip + limit]
 
     from config import ROLES
     users_info = []
-    for u in rows:
+    for u in page_rows:
         uid = u.get('user_id')
         uname = u.get('username')
         role = u.get('role', 'student')
@@ -228,25 +239,26 @@ def show_user_management(call, skip: int = 0, limit: int = 10):
             line += f", ФИО: {fio}"
         users_info.append(line)
 
-    page_num = skip // limit + 1
+    page_num = (skip // limit) + 1
     users_text = "\n".join(users_info) if users_info else "—"
 
     text = (
         "👥 Управление пользователями\n\n"
         f"Страница: {page_num}\n"
-        f"Показано: {len(rows)}\n\n"
+        f"Показано: {len(page_rows)} из {total}\n\n"
         f"{users_text}"
     )
 
+    # навигация
+    from telebot import types
     kb = types.InlineKeyboardMarkup(row_width=3)
     has_prev = skip > 0
+    has_next = (skip + limit) < total
     nav_buttons = []
-
     if has_prev:
         nav_buttons.append(types.InlineKeyboardButton("⬅️", callback_data=f"admin_users:{skip - limit}:{limit}"))
     if has_next:
         nav_buttons.append(types.InlineKeyboardButton("➡️", callback_data=f"admin_users:{skip + limit}:{limit}"))
-    
     if nav_buttons:
         kb.add(*nav_buttons)
 
