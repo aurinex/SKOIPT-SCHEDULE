@@ -102,8 +102,11 @@ def feedback_command(message):
     
 
 def process_feedback(message):
+    from bot.utils.api import api_get_user
+    user = api_get_user(user_id) or {}
     user_id = message.from_user.id
     text = message.text.strip()
+    current_group = user.get('group_name') or "не выбрана"
 
     if text.lower() in ("отмена", "cancel"):
         bot.send_message(user_id, "❌ Отправка отменена.")
@@ -113,6 +116,7 @@ def process_feedback(message):
     feedback_msg = (
         f"📩 <b>Новый фидбек от пользователя</b>\n\n"
         f"🧑‍💻 <b>ID:</b> {user_id}\n"
+        f"🎓 <b>Группа:</b> {current_group}\n"
         f"👤 <b>Username:</b> @{message.from_user.username or 'нет'}\n\n"
         f"💬 <b>Сообщение:</b>\n{text}"
     )
