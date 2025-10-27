@@ -348,6 +348,11 @@ def text_message_handler(message):
         else:
             bot.send_message(user_id, "❌ Ошибка при загрузке расписания.", reply_markup=keyboard)
         return
+    
+    if text == "💬 Обратная связь":
+        from bot.handlers.commands import feedback_command
+        feedback_command(message)
+        return
 
     bot.send_message(
         user_id,

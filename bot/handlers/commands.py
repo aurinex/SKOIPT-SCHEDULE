@@ -29,7 +29,7 @@ def is_teacher(user_id: int) -> bool:
     return role in ['teacher', 'admin']
 
 def send_group_selection(user_id: int):
-    kb = group_selection_keyboard(is_admin(user_id))
+    kb = group_selection_keyboard(is_admin(user_id), is_teacher(user_id))
     bot.send_message(user_id, welcome_text(is_admin(user_id), is_teacher(user_id)), reply_markup=kb)
 
 @bot.message_handler(commands=['start'])
@@ -88,6 +88,44 @@ def start_command(message):
         f"Используйте кнопки ниже для работы с ботом:",
         reply_markup=keyboard
     )
+
+@bot.message_handler(commands=['feedback'])
+def feedback_command(message):
+    user_id = message.from_user.id
+    msg = bot.send_message(
+        user_id,
+        "💬 Пожалуйста, опишите проблему или оставьте отзыв. "
+        "Ваше сообщение будет отправлено администраторам.\n\n"
+        "Для отмены — напишите «отмена»."
+    )
+    bot.register_next_step_handler(msg, process_feedback)
+    
+
+def process_feedback(message):
+    user_id = message.from_user.id
+    text = message.text.strip()
+
+    if text.lower() in ("отмена", "cancel"):
+        bot.send_message(user_id, "❌ Отправка отменена.")
+        return
+
+    # Формируем текст фидбека
+    feedback_msg = (
+        f"📩 <b>Новый фидбек от пользователя</b>\n\n"
+        f"🧑‍💻 <b>ID:</b> {user_id}\n"
+        f"👤 <b>Username:</b> @{message.from_user.username or 'нет'}\n\n"
+        f"💬 <b>Сообщение:</b>\n{text}"
+    )
+
+    # Отправляем всем администраторам
+    from config import ADMINS
+    for admin_id in ADMINS:
+        try:
+            bot.send_message(admin_id, feedback_msg, parse_mode="HTML")
+        except Exception:
+            pass
+
+    bot.send_message(user_id, "✅ Ваше сообщение успешно отправлено администраторам. Спасибо за отзыв!")
 
 @bot.message_handler(commands=['schedule'])
 def schedule_command(message):

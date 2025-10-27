@@ -10,13 +10,15 @@ def create_main_keyboard(user_id: int, is_teacher: bool, is_admin: bool) -> type
     keyboard.add(types.KeyboardButton("📅 Сегодня"), types.KeyboardButton("⚙️ Настройки"))
     keyboard.add(types.KeyboardButton("📅 ПН"), types.KeyboardButton("📅 ВТ"), types.KeyboardButton("📅 СР"))
     keyboard.add(types.KeyboardButton("📅 ЧТ"), types.KeyboardButton("📅 ПТ"), types.KeyboardButton("📅 СБ"))
+    if not is_admin:
+        keyboard.add(types.KeyboardButton("💬 Обратная связь"))
     if is_teacher:
         keyboard.add(types.KeyboardButton("👨‍🏫 Панель преподавателя"))
     if is_admin:
         keyboard.add(types.KeyboardButton("👑 Админ панель"))
     return keyboard
 
-def group_selection_keyboard(is_admin: bool) -> types.ReplyKeyboardMarkup:
+def group_selection_keyboard(is_admin: bool, is_teacher: bool) -> types.ReplyKeyboardMarkup:
     groups = api_get_all_groups()
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     if is_admin:
@@ -24,5 +26,7 @@ def group_selection_keyboard(is_admin: bool) -> types.ReplyKeyboardMarkup:
     for i in range(0, len(groups), 2):
         row = groups[i:i+2]
         keyboard.add(*[types.KeyboardButton(group) for group in row])
+    if not is_teacher:
+        keyboard.add(types.KeyboardButton("💬 Обратная связь"))
     keyboard.add(types.KeyboardButton("❌ Отмена"))
     return keyboard

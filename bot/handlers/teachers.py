@@ -67,6 +67,7 @@ def teacher_callback_handler(call):
         if groups:
             for g in sorted(groups):
                 kb.add(types.InlineKeyboardButton(g, callback_data=f"teacher_sendtask_{g}"))
+            kb.add(types.InlineKeyboardButton("⬅️ Другая группа", callback_data="teacher_other_group"))
             kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="teacher_back"))
 
             bot.edit_message_text(
@@ -109,7 +110,7 @@ def teacher_callback_handler(call):
         TEACHER_TARGET_GROUP.pop(user_id, None)
 
         # показываем уже готовую клавиатуру групп
-        kb_reply = group_selection_keyboard(is_admin=False)
+        kb_reply = group_selection_keyboard(is_admin=False, is_teacher=True)
 
         # чтобы не висело старое сообщение с инлайн-кнопками
         try:
@@ -265,7 +266,7 @@ def teacher_other_group_start(call):
     # сбросить текущую цель (чтобы не отправляли старой группе по ошибке)
     TEACHER_TARGET_GROUP.pop(user_id, None)
 
-    kb = group_selection_keyboard(is_admin=False)  # берём уже готовую клавиатуру
+    kb = group_selection_keyboard(is_admin=False, is_teacher=True)  # берём уже готовую клавиатуру
     bot.answer_callback_query(call.id)
     bot.send_message(
         user_id,
