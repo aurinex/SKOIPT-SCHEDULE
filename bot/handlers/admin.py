@@ -50,6 +50,27 @@ def admin_broadcast(call):
     )
     bot.register_next_step_handler(msg, process_admin_broadcast)
     
+    
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_group_stats"))
+def admin_group_stats_handler(call):
+    print("show admin_group_stats")
+    """Хэндлер для показа статистики по группам с пагинацией."""
+    user_id = call.from_user.id
+    if not is_admin(user_id):
+        bot.answer_callback_query(call.id, "❌ У вас нет прав для этого действия")
+        return
+
+    # Разбираем параметры пагинации из callback_data вида: admin_group_stats:{page}:{per_page}
+    parts = call.data.split(":")
+    page = int(parts[1]) if len(parts) > 1 else 0
+    per_page = int(parts[2]) if len(parts) > 2 else 20
+
+    show_admin_group_stats(call, page=page, per_page=per_page)
+    try:
+        bot.answer_callback_query(call.id)
+    except:
+        pass
+    
 @bot.callback_query_handler(func=lambda call: call.data == "admin_refresh_bell")
 def admin_refresh_bell(call):
     """Админ обновляет расписание звонков"""
@@ -290,8 +311,79 @@ def show_admin_stats(call):
                   f"📚 Уникальных групп у пользователей: {groups}\n"
                   f"🔔 Подписок на рассылку: {subs}")
     keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("👨‍🎓Статистика по группам", callback_data="admin_group_stats"))
     keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
     bot.edit_message_text(stats_text, user_id, message_id, reply_markup=keyboard)
+
+
+def show_admin_group_stats(call, page: int = 0, per_page: int = 20):
+    """
+    Выводит статистику количества студентов по группам.
+    - Считаются только пользователи role == 'student'
+    - Пустые/None группы сводятся к 'без группы'
+    - Сортировка: по убыванию количества, затем по названию группы
+    - Пагинация
+    """
+    user_id = call.from_user.id
+    message_id = call.message.message_id
+
+    users = api_get_users()
+    # считаем только студентов
+    from collections import defaultdict
+    groups_count = defaultdict(int)
+    total_students = 0
+
+    for u in users:
+        if u.get("role") != "student":
+            continue
+        total_students += 1
+        gname = (u.get("group_name") or "").strip()
+        gname = gname if gname else "без группы"
+        groups_count[gname] += 1
+
+    # подготовка данных и сортировка
+    items = sorted(
+        groups_count.items(),
+        key=lambda kv: (kv[0] == "без группы", -kv[1], kv[0])
+    )
+    total_groups = len(items)
+
+    # пагинация
+    page = max(0, int(page))
+    per_page = max(5, int(per_page))
+    start = page * per_page
+    end = start + per_page
+    page_items = items[start:end]
+
+    # формируем текст
+    lines = [f"• {g} — {cnt}" for g, cnt in page_items] or ["—"]
+
+    page_num = page + 1
+    page_total = (total_groups + per_page - 1) // per_page if total_groups else 1
+
+    text = (
+        "👨‍🎓 Статистика по группам (только студенты)\n\n"
+        f"Всего студентов: {total_students}\n"
+        f"Уникальных групп: {total_groups}\n"
+        f"Страница: {page_num}/{page_total}\n\n" +
+        "\n".join(lines)
+    )
+
+    # кнопки навигации
+    kb = types.InlineKeyboardMarkup(row_width=3)
+    nav = []
+    if page > 0:
+        nav.append(types.InlineKeyboardButton("⬅️", callback_data=f"admin_group_stats:{page-1}:{per_page}"))
+    if end < total_groups:
+        nav.append(types.InlineKeyboardButton("➡️", callback_data=f"admin_group_stats:{page+1}:{per_page}"))
+    if nav:
+        kb.add(*nav)
+
+    # назад в общую статистику
+    kb.add(types.InlineKeyboardButton("⬅️ Назад к статистике", callback_data="admin_stats"))
+    kb.add(types.InlineKeyboardButton("🏠 В админ-панель", callback_data="admin_panel"))
+
+    bot.edit_message_text(text, user_id, message_id, reply_markup=kb)
 
 @bot.callback_query_handler(func=lambda call: call.data == "admin_set_teacher")
 def set_teacher_callback(call):
