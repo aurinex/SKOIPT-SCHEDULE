@@ -70,6 +70,25 @@ def admin_group_stats_handler(call):
     except:
         pass
     
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_teachers_list"))
+def admin_teachers_list_handler(call):
+    """Хэндлер для отображения списка преподавателей с пагинацией."""
+    user_id = call.from_user.id
+    if not is_admin(user_id):
+        bot.answer_callback_query(call.id, "❌ У вас нет прав для этого действия")
+        return
+
+    parts = call.data.split(":")
+    page = int(parts[1]) if len(parts) > 1 else 0
+    per_page = int(parts[2]) if len(parts) > 2 else 20
+
+    show_admin_teachers_list(call, page=page, per_page=per_page)
+    try:
+        bot.answer_callback_query(call.id)
+    except:
+        pass
+
+    
 @bot.callback_query_handler(func=lambda call: call.data == "admin_refresh_bell")
 def admin_refresh_bell(call):
     """Админ обновляет расписание звонков"""
@@ -220,6 +239,64 @@ def handle_mass_notification(call):
 
     # запускаем рассылку в отдельном потоке
     Thread(target=send_notification_progressively, args=(bot, users, msg_text, user_id, context_name)).start()
+    
+def show_admin_teachers_list(call, page: int = 0, per_page: int = 20):
+    """
+    Показывает список всех преподавателей с их ФИО и ID.
+    - Только пользователи с role == 'teacher'
+    - Сортировка по ФИО (алфавитно)
+    - Пагинация
+    """
+    user_id = call.from_user.id
+    message_id = call.message.message_id
+
+    users = api_get_users()
+    teachers = [u for u in users if u.get("role") == "teacher"]
+    total_teachers = len(teachers)
+
+    # сортировка по фамилии
+    teachers = sorted(teachers, key=lambda u: (u.get("teacher_fio") or "Не указано").lower())
+
+    # пагинация
+    page = max(0, int(page))
+    per_page = max(5, int(per_page))
+    start = page * per_page
+    end = start + per_page
+    page_items = teachers[start:end]
+
+    # формирование списка
+    lines = []
+    for t in page_items:
+        fio = t.get("teacher_fio") or "Не указано"
+        uid = t.get("user_id")
+        uname = t.get("username") or "—"
+        lines.append(f"• {fio} (ID: {uid}, @{uname})")
+
+    lines = lines or ["—"]
+    page_num = page + 1
+    page_total = (total_teachers + per_page - 1) // per_page if total_teachers else 1
+
+    text = (
+        "👨‍🏫 Список преподавателей\n\n"
+        f"Всего преподавателей: {total_teachers}\n"
+        f"Страница: {page_num}/{page_total}\n\n" +
+        "\n".join(lines)
+    )
+
+    # кнопки
+    kb = types.InlineKeyboardMarkup(row_width=3)
+    nav = []
+    if page > 0:
+        nav.append(types.InlineKeyboardButton("⬅️", callback_data=f"admin_teachers_list:{page-1}:{per_page}"))
+    if end < total_teachers:
+        nav.append(types.InlineKeyboardButton("➡️", callback_data=f"admin_teachers_list:{page+1}:{per_page}"))
+    if nav:
+        kb.add(*nav)
+
+    kb.add(types.InlineKeyboardButton("⬅️ Назад к статистике", callback_data="admin_stats"))
+    kb.add(types.InlineKeyboardButton("🏠 В админ-панель", callback_data="admin_panel"))
+
+    bot.edit_message_text(text, user_id, message_id, reply_markup=kb)
 
 def show_user_management(call, skip: int = 0, limit: int = 10):
     user_id = call.from_user.id
@@ -311,6 +388,7 @@ def show_admin_stats(call):
                   f"🔔 Подписок на рассылку: {subs}")
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(types.InlineKeyboardButton("👨‍🎓Статистика по группам", callback_data="admin_group_stats"))
+    keyboard.add(types.InlineKeyboardButton("👨‍🏫Список преподавателей", callback_data="admin_teachers_list"))  # ← Новая кнопка
     keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
     bot.edit_message_text(stats_text, user_id, message_id, reply_markup=keyboard)
 
