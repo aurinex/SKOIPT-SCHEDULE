@@ -102,10 +102,10 @@ def feedback_command(message):
     
 
 def process_feedback(message):
-    from bot.utils.api import api_get_user
-    user = api_get_user(user_id) or {}
     user_id = message.from_user.id
     text = message.text.strip()
+    from bot.utils.api import api_get_user
+    user = api_get_user(user_id) or {}
     current_group = user.get('group_name') or "не выбрана"
 
     if text.lower() in ("отмена", "cancel"):
