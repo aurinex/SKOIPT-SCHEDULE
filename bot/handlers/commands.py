@@ -96,7 +96,8 @@ def feedback_command(message):
         user_id,
         "💬 Пожалуйста, опишите проблему или оставьте отзыв. "
         "Ваше сообщение будет отправлено администраторам.\n\n"
-        "Для отмены — напишите «отмена»."
+        "Для отмены — напишите «отмена».",
+        reply_markup=types.ReplyKeyboardRemove()
     )
     bot.register_next_step_handler(msg, process_feedback)
     
@@ -108,8 +109,12 @@ def process_feedback(message):
     user = api_get_user(user_id) or {}
     current_group = user.get('group_name') or "не выбрана"
 
+    teacher = is_teacher(user_id)
+    admin = is_admin(user_id)
+    keyboard = create_main_keyboard(user_id, is_teacher=teacher, is_admin=admin)
+
     if text.lower() in ("отмена", "cancel"):
-        bot.send_message(user_id, "❌ Отправка отменена.")
+        bot.send_message(user_id, "❌ Отправка отменена.", reply_markup=keyboard)
         return
 
     # Формируем текст фидбека
@@ -129,7 +134,7 @@ def process_feedback(message):
         except Exception:
             pass
 
-    bot.send_message(user_id, "✅ Ваше сообщение успешно отправлено администраторам. Спасибо за отзыв!")
+    bot.send_message(user_id, "✅ Ваше сообщение успешно отправлено администраторам. Спасибо за отзыв!", reply_markup=keyboard)
 
 @bot.message_handler(commands=['schedule'])
 def schedule_command(message):
