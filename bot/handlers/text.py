@@ -320,6 +320,18 @@ def text_message_handler(message):
                 types.InlineKeyboardButton("🚫 Нет, не уведомлять", callback_data="skip_notify:schedule")
             )
             bot.send_message(user_id, msg_text, reply_markup=kb)
+
+            keyboard = create_main_keyboard(
+                user_id,
+                is_teacher=is_teacher(user_id),
+                is_admin=is_admin(user_id)
+            )
+
+            bot.send_message(
+                user_id,
+                "Главное меню:",  # невидимый символ
+                reply_markup=keyboard
+            )
         else:
             bot.send_message(user_id, "❌ Ошибка при загрузке расписания.", reply_markup=keyboard)
         return
@@ -345,6 +357,18 @@ def text_message_handler(message):
                 types.InlineKeyboardButton("🚫 Нет, не уведомлять", callback_data="skip_notify:schedule")
             )
             bot.send_message(user_id, msg_text, reply_markup=kb)
+
+            keyboard = create_main_keyboard(
+                user_id,
+                is_teacher=is_teacher(user_id),
+                is_admin=is_admin(user_id)
+            )
+
+            bot.send_message(
+                user_id,
+                "Главное меню:",  # невидимый символ
+                reply_markup=keyboard
+            )
         else:
             bot.send_message(user_id, "❌ Ошибка при загрузке расписания.", reply_markup=keyboard)
         return
