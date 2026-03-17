@@ -8,6 +8,8 @@ BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
 API_URL: str = os.getenv("API_URL", "http://172.17.0.1:3020")
 TZ: str = os.getenv("TZ", "Asia/Yekaterinburg")
 
+PLATFORM = "telegram"
+
 # Roles
 ROLES = {
     'student': '👨‍🎓 Студент',

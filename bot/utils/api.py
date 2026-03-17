@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 from requests.adapters import HTTPAdapter, Retry
 import requests
-from config import API_URL
+from config import API_URL, PLATFORM
 from .logger import log_error
 
 session = requests.Session()
@@ -18,63 +18,65 @@ def _post(url, **kwargs):
 def _put(url, **kwargs):
     return session.put(url, timeout=30, **kwargs)
 
-def api_get_user(user_id: int) -> Optional[Dict[str, Any]]:
+def api_get_user(user_id: int, platform: str = PLATFORM) -> Optional[Dict[str, Any]]:
     try:
-        r = _get(f"{API_URL}/users/{user_id}")
+        # Эндпоинт включает динамическую платформу[cite: 9]
+        r = _get(f"{API_URL}/users/{platform}/{user_id}")
         if r.status_code == 200:
             return r.json()
-        print(f"[WARN] GET /users/{user_id} → {r.status_code}: {r.text[:200]}")
+        print(f"[WARN] GET /users/{platform}/{user_id} → {r.status_code}: {r.text[:200]}")
     except Exception as e:
-        log_error(f"api_get_user({user_id})", e)
+        log_error(f"api_get_user({user_id}, {platform})", e)
     return None
 
-def api_create_user(user_id: int, role: str = "student", username: str = "") -> Optional[Dict[str, Any]]:
-    payload = {"user_id": user_id, "role": role, "username": username}
+def api_create_user(user_id: int, role: str = "student", username: str = "", platform: str = PLATFORM) -> Optional[Dict[str, Any]]:
+    # Данные для создания пользователя с указанием платформы[cite: 9]
+    payload = {"user_id": user_id, "role": role, "username": username, "platform": platform}
     try:
         r = _post(f"{API_URL}/users/", json=payload)
         if r.status_code == 200:
             return r.json()
-        print(f"[WARN] POST /users → {r.status_code}: {r.text[:200]}")
+        print(f"[WARN] POST /users/ → {r.status_code}: {r.text[:200]}")
     except Exception as e:
-        log_error(f"api_create_user({user_id})", e)
+        log_error(f"api_create_user({user_id}, {platform})", e)
     return None
 
-def api_update_user(user_id: int, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def api_update_user(user_id: int, data: Dict[str, Any], platform: str = PLATFORM) -> Optional[Dict[str, Any]]:
     try:
-        r = _put(f"{API_URL}/users/{user_id}", json=data)
+        # Обновление данных пользователя через платформу[cite: 9]
+        r = _put(f"{API_URL}/users/{platform}/{user_id}", json=data)
         if r.status_code == 200:
             return r.json()
-        print(f"[WARN] PUT /users/{user_id} → {r.status_code}: {r.text[:200]}")
+        print(f"[WARN] PUT /users/{platform}/{user_id} → {r.status_code}: {r.text[:200]}")
     except Exception as e:
-        log_error(f"api_update_user({user_id})", e)
+        log_error(f"api_update_user({user_id}, {platform})", e)
     return None
 
-def api_get_users() -> List[Dict[str, Any]]:
+def api_get_users(platform: str = PLATFORM) -> List[Dict[str, Any]]:
     try:
-        params = {
-            "skip": 0,
-            "limit": 1000
-        }
-        r = _get(f"{API_URL}/users/", params=params)
+        params = {"skip": 0, "limit": 1000}
+        # Получение списка пользователей по платформе[cite: 9]
+        r = _get(f"{API_URL}/users/platform/{platform}", params=params)
         if r.status_code == 200:
             return r.json()
-        print(f"[WARN] GET /users → {r.status_code}: {r.text[:200]}")
+        print(f"[WARN] GET /users/platform/{platform} → {r.status_code}: {r.text[:200]}")
     except Exception as e:
-        log_error("api_get_users()", e)
+        log_error(f"api_get_users({platform})", e)
     return []
 
-def api_get_users_page(skip: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
+def api_get_users_page(skip: int = 0, limit: int = 10, platform: str = PLATFORM) -> List[Dict[str, Any]]:
     try:
-        r = _get(f"{API_URL}/users/", params={"skip": skip, "limit": limit})
+        # Пагинация пользователей для конкретной платформы[cite: 9]
+        r = _get(f"{API_URL}/users/platform/{platform}", params={"skip": skip, "limit": limit})
         if r.status_code == 200:
             return r.json()
-        print(f"[WARN] GET /users?skip={skip}&limit={limit} → {r.status_code}: {r.text[:200]}")
+        print(f"[WARN] GET /users/platform/{platform}?skip={skip}&limit={limit} → {r.status_code}: {r.text[:200]}")
     except Exception as e:
-        log_error(f"api_get_users_page(skip={skip}, limit={limit})", e)
+        log_error(f"api_get_users_page(skip={skip}, limit={limit}, platform={platform})", e)
     return []
 
-def api_get_users_page_peek(skip: int = 0, limit: int = 10) -> Tuple[List[Dict[str, Any]], bool]:
-    rows = api_get_users_page(skip=skip, limit=limit + 1)
+def api_get_users_page_peek(skip: int = 0, limit: int = 10, platform: str = PLATFORM) -> Tuple[List[Dict[str, Any]], bool]:
+    rows = api_get_users_page(skip=skip, limit=limit + 1, platform=platform)
     has_next = len(rows) > limit
     return rows[:limit], has_next
 
@@ -138,30 +140,40 @@ def api_upload_schedule(docx_bytes: bytes, json_bytes: bytes | None = None):
         log_error("api_upload_schedule()", e)
     return None
 
-def check_api_connection():
+def check_api_connection(platform: str = PLATFORM):
     try:
         print(f"🔍 Проверка API-доступности: {API_URL}")
-        r = _get(f"{API_URL}/users/")
+        # Проверка соединения по платформе из конфига[cite: 9, 11]
+        r = _get(f"{API_URL}/users/platform/{platform}")
         if r.status_code == 200:
-            print("✅ API доступно, соединение установлено!")
+            print(f"✅ API доступно для платформы {platform}!")
         else:
             print(f"⚠️ API ответило с кодом {r.status_code}: {r.text[:100]}")
     except Exception as e:
         log_error("check_api_connection()", e)
-        print("❌ Не удалось подключиться к API. Проверь URL и сервер.")
+        print("❌ Не удалось подключиться к API.")
 
 def api_upload_bell_schedule(json_bytes: bytes):
-    """
-    Отправляет bell_schedule.json на сервер (эндпоинт /bell_schedule/bell/upload)
-    """
     files = {
         "file": ("bell_schedule.json", json_bytes, "application/json"),
     }
     try:
-        resp = _post(f"{API_URL}/bell_schedule/bell/upload", files=files)
+        resp = _post(f"{API_URL}/bell_schedule/upload", files=files)
         if resp.status_code == 200:
             return resp.json()
         print("Ошибка при загрузке звонков:", resp.text)
     except Exception as e:
         log_error("api_upload_bell_schedule()", e)
     return None
+
+def api_get_users_to_notify(time_str: str, platform: str = PLATFORM) -> List[Dict[str, Any]]:
+    """Получает список пользователей, которым нужно отправить расписание в указанное время."""
+    try:
+        # Эндпоинт согласно схеме: /users/schedule/send/{platform}/{time}
+        r = _get(f"{API_URL}/users/schedule/send/{platform}/{time_str}")
+        if r.status_code == 200:
+            return r.json()
+        print(f"[WARN] GET /users/notify/{platform}/{time_str} → {r.status_code}")
+    except Exception as e:
+        log_error(f"api_get_users_to_notify({time_str}, {platform})", e)
+    return []
