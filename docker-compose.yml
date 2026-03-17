@@ -15,7 +15,7 @@ services:
       - /dev/net/tun
 
   tg_bot:
-    build: ./tg_bot
+    build: .
     container_name: schedule_tg_bot
     restart: unless-stopped
     depends_on:
