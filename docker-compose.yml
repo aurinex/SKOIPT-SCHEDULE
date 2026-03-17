@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+
+  vpn:
+    image: ghcr.io/sagernet/sing-box:latest
+    container_name: tg_vpn
+    restart: unless-stopped
+    volumes:
+      - ./singbox/config.json:/etc/sing-box/config.json
+    command: run -c /etc/sing-box/config.json
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+
+  tg_bot:
+    build: ./tg_bot
+    container_name: schedule_tg_bot
+    restart: unless-stopped
+    depends_on:
+      - vpn
+    network_mode: "service:vpn"
