@@ -258,6 +258,14 @@ def text_message_handler(message):
             schedule_text = format_schedule_for_day(group_name, sch or {}, today)
             bot.send_message(user_id, schedule_text, protect_content=True)
         return
+    
+    if text == "🔗 Мы в ВК":
+        bot.send_message(
+            user_id, 
+            "🔗 Наша группа ВКонтакте: https://vk.ru/skoipt_schedule",
+            disable_web_page_preview=False  # чтобы превью ссылки отображалось
+        )
+        return
 
     if text == "⚙️ Настройки":
         render_settings_panel(message.from_user.id)

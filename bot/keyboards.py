@@ -7,7 +7,7 @@ from .utils.api import api_get_teacher_schedule
 
 def create_main_keyboard(user_id: int, is_teacher: bool, is_admin: bool) -> types.ReplyKeyboardMarkup:
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    keyboard.add(types.KeyboardButton("📅 Сегодня"), types.KeyboardButton("⚙️ Настройки"))
+    keyboard.add(types.KeyboardButton("🔗 Мы в ВК"), types.KeyboardButton("📅 Сегодня"), types.KeyboardButton("⚙️ Настройки"))
     keyboard.add(types.KeyboardButton("📅 ПН"), types.KeyboardButton("📅 ВТ"), types.KeyboardButton("📅 СР"))
     keyboard.add(types.KeyboardButton("📅 ЧТ"), types.KeyboardButton("📅 ПТ"), types.KeyboardButton("📅 СБ"))
     if not is_admin:
